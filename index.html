@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="uz">
+<head>
+<meta charset="UTF-8">
+<title>3D Askariy Jang - Toshlar bilan</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<canvas id="gameCanvas"></canvas>
+
+<div id="hud" style="display:none;">
+  <div class="row"><span class="label">❤️ Salomatlik: </span><span class="val" id="hpVal">100</span></div>
+  <div class="row"><span class="label">🎯 O'ldirilgan: </span><span class="val" id="killVal">0</span></div>
+  <div class="row"><span class="label">🔫 Qurol: </span><span class="val" id="weaponVal">Avtomat</span></div>
+  <div class="row"><span class="label">📦 O'q: </span><span class="val" id="ammoVal">30 / 30</span></div>
+  <div class="row"><span class="label">⏱️ Vaqt: </span><span class="val" id="timeVal">0</span></div>
+</div>
+
+<div id="scoreUI" style="display:none; position:absolute; top:20px; left:50%; transform:translateX(-50%); text-align:center; background:rgba(0,0,0,0.75); padding:10px 25px; border-radius:12px; border:2px solid #555; z-index:100; font-family:sans-serif; color:white;">
+  <div style="font-size:22px; font-weight:bold;">
+    <span style="color:#ff4444;" id="redScore">0</span> - <span style="color:#4444ff;" id="blueScore">0</span>
+  </div>
+  <div style="font-size:12px; color:#aaa; margin-top:4px;">Jamoa Ochkosi</div>
+</div>
+
+<div id="captureUI" style="display:none; position:absolute; top:90px; left:50%; transform:translateX(-50%); text-align:center; background:rgba(0,0,0,0.7); padding:10px 20px; border-radius:8px; border:2px solid #444; z-index:100; font-family:sans-serif;">
+  <div style="color:white; margin-bottom:5px; font-weight:bold; font-size:18px;">BAZA EGALLASH</div>
+  <div style="display:flex; gap:20px;">
+    <div>
+      <div style="color:#ff4444; font-weight:bold; margin-bottom:4px;">QIZILLAR</div>
+      <div style="width:150px; height:15px; background:#222; border:1px solid #555;">
+        <div id="redCaptureBar" style="width:0%; height:100%; background:#ff4444; transition:width 0.2s;"></div>
+      </div>
+    </div>
+    <div>
+      <div style="color:#4444ff; font-weight:bold; margin-bottom:4px;">KO'KLAR</div>
+      <div style="width:150px; height:15px; background:#222; border:1px solid #555;">
+        <div id="blueCaptureBar" style="width:0%; height:100%; background:#4444ff; transition:width 0.2s;"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="volumeControl">
+  🔊 <input type="range" id="volumeSlider" min="0" max="100" value="50">
+</div>
+
+<div id="crosshair"><div id="crosshairDot"></div></div>
+<div id="hitMarker"></div>
+<div id="muzzleFlash"></div>
+<div id="damageOverlay"></div>
+<div id="scopeOverlay">
+  <div class="scope-line horizontal"></div>
+  <div class="scope-line vertical"></div>
+  <div class="scope-circle"></div>
+</div>
+<div id="pauseMsg">⏸️ PAUZA<br><span style="font-size:16px;color:#ccc;">Davom etish uchun ekranni bosing</span></div>
+
+<div id="startScreen">
+  <h1>⚔️ ASKARIY JANG ⚔️</h1>
+  <p>Keng maydonda dushman askarlarini o'q bilan yo'q qiling!</p>
+  <p style="color:#aaa;font-size:15px;">Toshlar va daraxtlar orqasiga berkinishingiz mumkin!</p>
+  
+  <div style="margin: 20px 0; background: rgba(0,0,0,0.5); padding: 15px; border-radius: 8px; border: 1px solid #444;">
+    <input type="text" id="playerName" placeholder="Ismingizni kiriting" maxlength="15" style="padding: 10px; width: 80%; font-size: 16px; border-radius: 5px; border: none; outline: none; text-align: center; margin-bottom: 15px; background: #222; color: white;">
+    
+    <div style="display: flex; justify-content: center; gap: 10px; margin-bottom: 10px;">
+      <button class="team-btn" data-team="auto" style="padding: 10px 15px; background: #666; color: white; border: 2px solid white; border-radius: 5px; cursor: pointer; font-weight: bold;">Avto Tanlash</button>
+      <button class="team-btn" data-team="red" style="padding: 10px 15px; background: #ff4444; color: white; border: 2px solid transparent; border-radius: 5px; cursor: pointer; font-weight: bold;">Qizillar</button>
+      <button class="team-btn" data-team="blue" style="padding: 10px 15px; background: #4444ff; color: white; border: 2px solid transparent; border-radius: 5px; cursor: pointer; font-weight: bold;">Ko'klar</button>
+    </div>
+  </div>
+
+  <div class="keys">
+    <p style="margin-bottom:12px;"><span class="key">W</span><span class="key">A</span><span class="key">S</span><span class="key">D</span> — Harakatlanish &nbsp; <span class="key">SPACE</span> — Sakrash</p>
+    <p style="margin-bottom:12px;"><span class="key">1</span><span class="key">2</span><span class="key">3</span><span class="key">4</span> — Qurolni almashtirish</p>
+    <p style="margin-bottom:12px;">🖱️ <b>Sichqoncha</b> — Nishonga olish</p>
+    <p style="margin-bottom:12px;"><span class="key">Chap tugma</span> — O'q otish &nbsp; <span class="key">O'ng tugma</span> — Yaqinlashtirish (Sniper)</p>
+    <p><span class="key">R</span> — Qayta o'qlash &nbsp; <span class="key">SHIFT</span> — Yugurish</p>
+  </div>
+  <button id="startBtn">JANGGA KIRISH</button>
+</div>
+
+<div id="gameOver">
+  <h2>SIZ HALOK BO'LDINGIZ</h2>
+  <p id="finalStats" style="font-size:22px; margin:20px;"></p>
+  <button onclick="location.reload()" style="padding:14px 40px; font-size:20px; background:#ff6b35; color:#fff; border:none; border-radius:8px; cursor:pointer; font-weight:bold;">QAYTA BOSHLASH</button>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/three@0.150.1/build/three.min.js"></script>
+<script src="/socket.io/socket.io.js"></script>
+<script src="js/globals.js"></script>
+<script src="js/audio.js"></script>
+<script src="js/entities.js"></script>
+<script src="js/game.js"></script>
+</body>
+</html>

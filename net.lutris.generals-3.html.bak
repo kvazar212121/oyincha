@@ -1,0 +1,1152 @@
+
+<!DOCTYPE html>
+<html lang="uz">
+<head>
+<meta charset="UTF-8">
+<title>3D Askariy Jang - Toshlar bilan</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { overflow:hidden; font-family: 'Segoe UI', sans-serif; background:#000; user-select:none; }
+  #gameCanvas { display:block; cursor:none; }
+  #hud {
+    position:fixed; top:20px; left:20px; color:#fff;
+    text-shadow: 2px 2px 4px #000; z-index:10;
+    background: rgba(0,0,0,0.55); padding: 14px 20px; border-radius: 10px;
+    border: 1px solid rgba(255,255,255,0.2); min-width: 230px;
+  }
+  #hud .row { margin: 5px 0; font-size: 16px; }
+  #hud .label { color:#9ef; }
+  #hud .val { color:#ffd24a; font-weight:bold; font-size:19px; }
+  #crosshair {
+    position:fixed; top:50%; left:50%; transform:translate(-50%,-50%);
+    width:26px; height:26px; z-index:10; pointer-events:none;
+  }
+  #crosshair::before, #crosshair::after {
+    content:''; position:absolute; background:rgba(255,255,255,0.95);
+    box-shadow: 0 0 4px #000;
+  }
+  #crosshair::before { left:50%; top:0; width:2px; height:100%; transform:translateX(-50%); }
+  #crosshair::after { top:50%; left:0; height:2px; width:100%; transform:translateY(-50%); }
+  #crosshairDot {
+    position:absolute; top:50%; left:50%; width:4px; height:4px; border-radius:50%;
+    background:#ff3333; transform:translate(-50%,-50%);
+  }
+  #startScreen {
+    position:fixed; inset:0; background:linear-gradient(135deg,#1a3a1a,#0a1a0a);
+    display:flex; flex-direction:column; align-items:center; justify-content:center;
+    z-index:100; color:#fff; text-align:center; padding:20px;
+  }
+  #startScreen h1 {
+    font-size:54px; margin-bottom:20px; color:#ffd24a;
+    text-shadow: 3px 3px 8px #000; letter-spacing:3px;
+  }
+  #startScreen p { font-size:18px; margin:8px 0; line-height:1.6; }
+  #startScreen .keys {
+    background:rgba(0,0,0,0.5); padding:20px 34px; border-radius:12px;
+    margin:20px 0; border:1px solid rgba(255,210,74,0.4); text-align:left;
+  }
+  #startBtn {
+    margin-top:20px; padding: 16px 50px; font-size:22px; font-weight:bold;
+    background: linear-gradient(135deg,#ff6b35,#f7931e); color:#fff;
+    border:none; border-radius:10px; cursor:pointer; letter-spacing:2px;
+    box-shadow: 0 6px 24px rgba(255,107,53,0.6); transition: transform 0.2s;
+  }
+  #startBtn:hover { transform: scale(1.07); }
+  #gameOver {
+    position:fixed; inset:0; background:rgba(80,0,0,0.9);
+    display:none; flex-direction:column; align-items:center; justify-content:center;
+    z-index:100; color:#fff;
+  }
+  #gameOver h2 { font-size:60px; color:#ff4444; margin-bottom:20px; }
+  #muzzleFlash {
+    position:fixed; bottom:12%; right:20%; width:80px; height:80px;
+    background: radial-gradient(circle, #ffeb3b 0%, #ff9800 40%, transparent 70%);
+    border-radius:50%; opacity:0; pointer-events:none; z-index:5;
+  }
+  #hitMarker {
+    position:fixed; top:50%; left:50%; transform:translate(-50%,-50%);
+    width:34px; height:34px; opacity:0; pointer-events:none; z-index:11;
+  }
+  #hitMarker::before, #hitMarker::after {
+    content:''; position:absolute; background:#ff2222; left:0; top:50%;
+    width:100%; height:3px; transform:translateY(-50%);
+  }
+  #hitMarker::before { transform:translateY(-50%) rotate(45deg); }
+  #hitMarker::after { transform:translateY(-50%) rotate(-45deg); }
+  #damageOverlay {
+    position:fixed; inset:0; pointer-events:none; z-index:9;
+    box-shadow: inset 0 0 0px rgba(255,0,0,0); transition: box-shadow 0.3s;
+  }
+  #pauseMsg {
+    position:fixed; top:50%; left:50%; transform:translate(-50%,-50%);
+    background:rgba(0,0,0,0.85); color:#ffd24a; padding:24px 48px;
+    border-radius:12px; font-size:22px; z-index:50; display:none;
+    border: 2px solid #ffd24a; text-align:center;
+  }
+  .key { display:inline-block; background:#333; color:#ffd24a; padding:3px 10px; border-radius:5px; font-weight:bold; min-width:30px; text-align:center; border:1px solid #555; margin:0 2px; }
+  #volumeControl {
+    position:fixed; bottom:20px; right:20px; z-index:10;
+    background:rgba(0,0,0,0.6); padding:10px 16px; border-radius:8px;
+    display:none; align-items:center; gap:10px; color:#fff; font-size:14px;
+  }
+  #volumeSlider { width:100px; accent-color:#ffd24a; }
+</style>
+</head>
+<body>
+<canvas id="gameCanvas"></canvas>
+
+<div id="hud" style="display:none;">
+  <div class="row"><span class="label">❤️ Salomatlik: </span><span class="val" id="hpVal">100</span></div>
+  <div class="row"><span class="label">🎯 O'ldirilgan: </span><span class="val" id="killVal">0</span></div>
+  <div class="row"><span class="label">🔫 O'q: </span><span class="val" id="ammoVal">30 / 30</span></div>
+  <div class="row"><span class="label">⏱️ Vaqt: </span><span class="val" id="timeVal">0</span></div>
+</div>
+
+<div id="volumeControl">
+  🔊 <input type="range" id="volumeSlider" min="0" max="100" value="50">
+</div>
+
+<div id="crosshair"><div id="crosshairDot"></div></div>
+<div id="hitMarker"></div>
+<div id="muzzleFlash"></div>
+<div id="damageOverlay"></div>
+<div id="pauseMsg">⏸️ PAUZA<br><span style="font-size:16px;color:#ccc;">Davom etish uchun ekranni bosing</span></div>
+
+<div id="startScreen">
+  <h1>⚔️ ASKARIY JANG ⚔️</h1>
+  <p>Keng maydonda dushman askarlarini o'q bilan yo'q qiling!</p>
+  <p style="color:#aaa;font-size:15px;">Toshlar va daraxtlar orqasiga berkinishingiz mumkin!</p>
+  <div class="keys">
+    <p style="margin-bottom:12px;"><span class="key">W</span><span class="key">A</span><span class="key">S</span><span class="key">D</span> — Harakatlanish</p>
+    <p style="margin-bottom:12px;">🖱️ <b>Sichqoncha</b> — Nishonga olish (ekranni bosib ushlang)</p>
+    <p style="margin-bottom:12px;"><span class="key">Chap tugma</span> — O'q otish</p>
+    <p><span class="key">R</span> — Qayta o'qlash &nbsp; <span class="key">SHIFT</span> — Yugurish</p>
+  </div>
+  <button id="startBtn">JANGGA KIRISH</button>
+</div>
+
+<div id="gameOver">
+  <h2>SIZ HALOK BO'LDINGIZ</h2>
+  <p id="finalStats" style="font-size:22px; margin:20px;"></p>
+  <button onclick="location.reload()" style="padding:14px 40px; font-size:20px; background:#ff6b35; color:#fff; border:none; border-radius:8px; cursor:pointer; font-weight:bold;">QAYTA BOSHLASH</button>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/three@0.150.1/build/three.min.js"></script>
+<script>
+// ==================== AUDIO ENGINE ====================
+let audioCtx = null;
+let masterGain = null;
+let globalVolume = 0.5;
+
+function initAudio() {
+  if (audioCtx) return;
+  audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  masterGain = audioCtx.createGain();
+  masterGain.gain.value = globalVolume;
+  masterGain.connect(audioCtx.destination);
+}
+
+function setVolume(v) {
+  globalVolume = v;
+  if (masterGain) masterGain.gain.value = v;
+}
+
+document.getElementById('volumeSlider').addEventListener('input', e => {
+  setVolume(e.target.value / 100);
+});
+
+function createNoiseBuffer(duration) {
+  const sampleRate = audioCtx.sampleRate;
+  const length = sampleRate * duration;
+  const buffer = audioCtx.createBuffer(1, length, sampleRate);
+  const data = buffer.getChannelData(0);
+  for (let i = 0; i < length; i++) data[i] = Math.random() * 2 - 1;
+  return buffer;
+}
+
+let noiseBuffer = null;
+function ensureNoiseBuffer() {
+  if (!noiseBuffer) noiseBuffer = createNoiseBuffer(2);
+}
+
+function playShootSound() {
+  if (!audioCtx) return;
+  ensureNoiseBuffer();
+  const t = audioCtx.currentTime;
+  const ns = audioCtx.createBufferSource();
+  ns.buffer = noiseBuffer;
+  const nf = audioCtx.createBiquadFilter();
+  nf.type = 'lowpass';
+  nf.frequency.setValueAtTime(3000, t);
+  nf.frequency.exponentialRampToValueAtTime(200, t + 0.15);
+  const ng = audioCtx.createGain();
+  ng.gain.setValueAtTime(0.8, t);
+  ng.gain.exponentialRampToValueAtTime(0.001, t + 0.2);
+  ns.connect(nf).connect(ng).connect(masterGain);
+  ns.start(t); ns.stop(t + 0.25);
+  const osc = audioCtx.createOscillator();
+  osc.type = 'square';
+  osc.frequency.setValueAtTime(150, t);
+  osc.frequency.exponentialRampToValueAtTime(30, t + 0.1);
+  const og = audioCtx.createGain();
+  og.gain.setValueAtTime(0.5, t);
+  og.gain.exponentialRampToValueAtTime(0.001, t + 0.12);
+  osc.connect(og).connect(masterGain);
+  osc.start(t); osc.stop(t + 0.15);
+  const cr = audioCtx.createOscillator();
+  cr.type = 'sawtooth';
+  cr.frequency.setValueAtTime(800, t);
+  cr.frequency.exponentialRampToValueAtTime(100, t + 0.05);
+  const cg = audioCtx.createGain();
+  cg.gain.setValueAtTime(0.3, t);
+  cg.gain.exponentialRampToValueAtTime(0.001, t + 0.06);
+  cr.connect(cg).connect(masterGain);
+  cr.start(t); cr.stop(t + 0.08);
+}
+
+function playEnemyShootSound(distance) {
+  if (!audioCtx) return;
+  ensureNoiseBuffer();
+  const t = audioCtx.currentTime;
+  const df = Math.max(0.2, 1 - distance / 30);
+  const ns = audioCtx.createBufferSource();
+  ns.buffer = noiseBuffer;
+  const nf = audioCtx.createBiquadFilter();
+  nf.type = 'lowpass';
+  nf.frequency.setValueAtTime(2000 * df, t);
+  nf.frequency.exponentialRampToValueAtTime(150, t + 0.12);
+  const ng = audioCtx.createGain();
+  ng.gain.setValueAtTime(0.4 * df, t);
+  ng.gain.exponentialRampToValueAtTime(0.001, t + 0.15);
+  ns.connect(nf).connect(ng).connect(masterGain);
+  ns.start(t); ns.stop(t + 0.2);
+}
+
+function playHitSound() {
+  if (!audioCtx) return;
+  const t = audioCtx.currentTime;
+  const osc = audioCtx.createOscillator();
+  osc.type = 'sine';
+  osc.frequency.setValueAtTime(800, t);
+  osc.frequency.exponentialRampToValueAtTime(200, t + 0.08);
+  const g = audioCtx.createGain();
+  g.gain.setValueAtTime(0.4, t);
+  g.gain.exponentialRampToValueAtTime(0.001, t + 0.1);
+  osc.connect(g).connect(masterGain);
+  osc.start(t); osc.stop(t + 0.12);
+}
+
+function playDeathSound() {
+  if (!audioCtx) return;
+  const t = audioCtx.currentTime;
+  const osc = audioCtx.createOscillator();
+  osc.type = 'sawtooth';
+  osc.frequency.setValueAtTime(300, t);
+  osc.frequency.exponentialRampToValueAtTime(50, t + 0.4);
+  const g = audioCtx.createGain();
+  g.gain.setValueAtTime(0.35, t);
+  g.gain.exponentialRampToValueAtTime(0.001, t + 0.5);
+  osc.connect(g).connect(masterGain);
+  osc.start(t); osc.stop(t + 0.55);
+}
+
+function playDamageSound() {
+  if (!audioCtx) return;
+  const t = audioCtx.currentTime;
+  const osc = audioCtx.createOscillator();
+  osc.type = 'sine';
+  osc.frequency.setValueAtTime(200, t);
+  osc.frequency.linearRampToValueAtTime(80, t + 0.2);
+  const g = audioCtx.createGain();
+  g.gain.setValueAtTime(0.5, t);
+  g.gain.exponentialRampToValueAtTime(0.001, t + 0.25);
+  osc.connect(g).connect(masterGain);
+  osc.start(t); osc.stop(t + 0.3);
+}
+
+function playReloadSound() {
+  if (!audioCtx) return;
+  const t = audioCtx.currentTime;
+  const c1 = audioCtx.createOscillator();
+  c1.type = 'square'; c1.frequency.value = 1200;
+  const cg1 = audioCtx.createGain();
+  cg1.gain.setValueAtTime(0.2, t);
+  cg1.gain.exponentialRampToValueAtTime(0.001, t + 0.03);
+  c1.connect(cg1).connect(masterGain);
+  c1.start(t); c1.stop(t + 0.04);
+  ensureNoiseBuffer();
+  const sl = audioCtx.createBufferSource();
+  sl.buffer = noiseBuffer;
+  const sf = audioCtx.createBiquadFilter();
+  sf.type = 'bandpass';
+  sf.frequency.setValueAtTime(800, t + 0.2);
+  sf.frequency.linearRampToValueAtTime(2000, t + 0.8);
+  const sg = audioCtx.createGain();
+  sg.gain.setValueAtTime(0, t);
+  sg.gain.linearRampToValueAtTime(0.15, t + 0.3);
+  sg.gain.linearRampToValueAtTime(0.15, t + 0.7);
+  sg.gain.linearRampToValueAtTime(0, t + 1.0);
+  sl.connect(sf).connect(sg).connect(masterGain);
+  sl.start(t); sl.stop(t + 1.1);
+  const c2 = audioCtx.createOscillator();
+  c2.type = 'square'; c2.frequency.value = 1400;
+  const cg2 = audioCtx.createGain();
+  cg2.gain.setValueAtTime(0.25, t + 1.2);
+  cg2.gain.exponentialRampToValueAtTime(0.001, t + 1.23);
+  c2.connect(cg2).connect(masterGain);
+  c2.start(t + 1.2); c2.stop(t + 1.25);
+}
+
+function playEmptyClick() {
+  if (!audioCtx) return;
+  const t = audioCtx.currentTime;
+  const osc = audioCtx.createOscillator();
+  osc.type = 'square'; osc.frequency.value = 2000;
+  const g = audioCtx.createGain();
+  g.gain.setValueAtTime(0.15, t);
+  g.gain.exponentialRampToValueAtTime(0.001, t + 0.03);
+  osc.connect(g).connect(masterGain);
+  osc.start(t); osc.stop(t + 0.04);
+}
+
+function playGameOverSound() {
+  if (!audioCtx) return;
+  const t = audioCtx.currentTime;
+  [200, 160, 120].forEach((freq, i) => {
+    const osc = audioCtx.createOscillator();
+    osc.type = 'sawtooth'; osc.frequency.value = freq;
+    const g = audioCtx.createGain();
+    g.gain.setValueAtTime(0.3, t + i * 0.3);
+    g.gain.exponentialRampToValueAtTime(0.001, t + i * 0.3 + 0.4);
+    osc.connect(g).connect(masterGain);
+    osc.start(t + i * 0.3); osc.stop(t + i * 0.3 + 0.45);
+  });
+}
+
+// ==================== O'YIN ====================
+let scene, camera, renderer, clock;
+let playerPos = new THREE.Vector3(0, 2, 0);
+let yaw = 0, pitch = 0;
+const keys = {};
+let enemies = [];
+let particles = [];
+let trees = [];
+let rocks = [];       // toshlar (berkinish uchun)
+let obstacles = [];   // barcha to'siqlar (daraxt + tosh) koliziya uchun
+let killCount = 0;
+let hp = 100;
+let ammo = 30;
+const maxAmmo = 30;
+let reloading = false;
+let startTime = 0;
+let gameActive = false;
+let paused = false;
+let playerGroup;
+let shootCooldown = 0;
+let mouseDown = false;
+
+let recoilKick = 0;
+let recoilTilt = 0;
+let pitchRecoil = 0;
+
+const FIELD_SIZE = 200;
+const ENEMY_COUNT_MAX = 14;
+const ENEMY_SHOOT_RANGE = 25;
+const ENEMY_HP = 180;
+const MOUSE_SENSITIVITY = 0.002;
+
+const raycaster = new THREE.Raycaster();
+const screenCenter = new THREE.Vector2(0, 0);
+
+function init() {
+  scene = new THREE.Scene();
+  scene.background = new THREE.Color(0x87ceeb);
+  scene.fog = new THREE.Fog(0x87ceeb, 80, 280);
+
+  camera = new THREE.PerspectiveCamera(75, innerWidth/innerHeight, 0.1, 1000);
+
+  renderer = new THREE.WebGLRenderer({ canvas: document.getElementById('gameCanvas'), antialias:true });
+  renderer.setSize(innerWidth, innerHeight);
+  renderer.shadowMap.enabled = true;
+  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+
+  clock = new THREE.Clock();
+
+  scene.add(new THREE.AmbientLight(0xffffff, 0.65));
+
+  const sun = new THREE.DirectionalLight(0xfff4d6, 1.1);
+  sun.position.set(60, 100, 40);
+  sun.castShadow = true;
+  sun.shadow.mapSize.width = 2048;
+  sun.shadow.mapSize.height = 2048;
+  sun.shadow.camera.left = -120;
+  sun.shadow.camera.right = 120;
+  sun.shadow.camera.top = 120;
+  sun.shadow.camera.bottom = -120;
+  scene.add(sun);
+
+  // Yer
+  const groundGeo = new THREE.PlaneGeometry(FIELD_SIZE*2, FIELD_SIZE*2, 40, 40);
+  const groundMat = new THREE.MeshStandardMaterial({ color: 0x4a7c3a });
+  const ground = new THREE.Mesh(groundGeo, groundMat);
+  ground.rotation.x = -Math.PI/2;
+  ground.receiveShadow = true;
+  scene.add(ground);
+
+  for (let i = 0; i < 100; i++) {
+    const patchGeo = new THREE.CircleGeometry(Math.random()*3+1, 8);
+    const patchMat = new THREE.MeshStandardMaterial({ 
+      color: Math.random() > 0.5 ? 0x3a6c2a : 0x5a8c4a 
+    });
+    const patch = new THREE.Mesh(patchGeo, patchMat);
+    patch.rotation.x = -Math.PI/2;
+    patch.position.set(
+      (Math.random()-0.5)*FIELD_SIZE*1.8, 0.01,
+      (Math.random()-0.5)*FIELD_SIZE*1.8
+    );
+    scene.add(patch);
+  }
+
+  // Daraxtlar
+  for (let i = 0; i < 60; i++) {
+    const tree = createTree();
+    let x, z;
+    do {
+      x = (Math.random()-0.5)*FIELD_SIZE*1.7;
+      z = (Math.random()-0.5)*FIELD_SIZE*1.7;
+    } while(Math.hypot(x, z) < 15);
+    tree.position.set(x, 0, z);
+    tree.rotation.y = Math.random()*Math.PI*2;
+    scene.add(tree);
+    trees.push(tree);
+    obstacles.push({ x: x, z: z, radius: 1.2 });
+  }
+
+  // ===== TOSHLAR (berkinish uchun) =====
+  for (let i = 0; i < 40; i++) {
+    const rock = createRock();
+    let x, z, valid;
+    do {
+      x = (Math.random()-0.5)*FIELD_SIZE*1.6;
+      z = (Math.random()-0.5)*FIELD_SIZE*1.6;
+      valid = Math.hypot(x, z) > 12;
+      // Boshqa toshlardan uzoqda bo'lsin
+      for (const ob of obstacles) {
+        if (Math.hypot(x - ob.x, z - ob.z) < 4) { valid = false; break; }
+      }
+    } while(!valid);
+    rock.position.set(x, 0, z);
+    rock.rotation.y = Math.random()*Math.PI*2;
+    scene.add(rock);
+    rocks.push(rock);
+    // Toshning koliziya radiusi o'lchamiga qarab
+    const rScale = rock.scale.x;
+    obstacles.push({ x: x, z: z, radius: 1.0 * rScale + 0.3 });
+  }
+
+  // Tog'lar
+  for (let i = 0; i < 22; i++) {
+    const mGeo = new THREE.ConeGeometry(20 + Math.random()*15, 30 + Math.random()*20, 5);
+    const mMat = new THREE.MeshStandardMaterial({ color: 0x556b4a });
+    const mountain = new THREE.Mesh(mGeo, mMat);
+    const angle = (i/22)*Math.PI*2;
+    mountain.position.set(
+      Math.cos(angle)*FIELD_SIZE*1.25, 0,
+      Math.sin(angle)*FIELD_SIZE*1.25
+    );
+    mountain.rotation.y = Math.random()*Math.PI;
+    scene.add(mountain);
+  }
+
+  // Qurol
+  playerGroup = new THREE.Group();
+  playerGroup.userData.restPos = new THREE.Vector3(0.32, -0.3, -0.5);
+  
+  const gunGroup = new THREE.Group();
+  playerGroup.userData.gunGroup = gunGroup;
+  
+  const gunBody = new THREE.Mesh(
+    new THREE.BoxGeometry(0.14, 0.14, 0.9),
+    new THREE.MeshStandardMaterial({ color: 0x1a1a1a })
+  );
+  gunBody.position.set(0, 0, -0.05);
+  gunGroup.add(gunBody);
+
+  const gunBarrel = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.032, 0.032, 0.7, 10),
+    new THREE.MeshStandardMaterial({ color: 0x0a0a0a })
+  );
+  gunBarrel.rotation.x = Math.PI/2;
+  gunBarrel.position.set(0, 0.04, -0.5);
+  gunGroup.add(gunBarrel);
+
+  const gunHandle = new THREE.Mesh(
+    new THREE.BoxGeometry(0.1, 0.28, 0.1),
+    new THREE.MeshStandardMaterial({ color: 0x3a2410 })
+  );
+  gunHandle.position.set(0, -0.14, 0.12);
+  gunGroup.add(gunHandle);
+
+  const gunStock = new THREE.Mesh(
+    new THREE.BoxGeometry(0.12, 0.2, 0.35),
+    new THREE.MeshStandardMaterial({ color: 0x4a2f15 })
+  );
+  gunStock.position.set(0, -0.02, 0.42);
+  gunGroup.add(gunStock);
+
+  const gunMag = new THREE.Mesh(
+    new THREE.BoxGeometry(0.08, 0.22, 0.12),
+    new THREE.MeshStandardMaterial({ color: 0x222222 })
+  );
+  gunMag.position.set(0, -0.16, -0.05);
+  gunGroup.add(gunMag);
+
+  const handGeo = new THREE.BoxGeometry(0.18, 0.18, 0.4);
+  const handMat = new THREE.MeshStandardMaterial({ color: 0xd4a574 });
+  const hand1 = new THREE.Mesh(handGeo, handMat);
+  hand1.position.set(0, -0.04, -0.2);
+  gunGroup.add(hand1);
+  const hand2 = new THREE.Mesh(handGeo, handMat);
+  hand2.position.set(0, -0.14, 0.3);
+  gunGroup.add(hand2);
+
+  gunGroup.position.copy(playerGroup.userData.restPos);
+  playerGroup.add(gunGroup);
+
+  camera.add(playerGroup);
+  scene.add(camera);
+
+  // Eventlar
+  addEventListener('resize', onResize);
+  addEventListener('keydown', e => {
+    keys[e.code] = true;
+    if (e.code === 'KeyR') reload();
+  });
+  addEventListener('keyup', e => { keys[e.code] = false; });
+  
+  // Sichqoncha bilan mo'jalga olish (Pointer Lock)
+  addEventListener('mousemove', onMouseMove);
+  addEventListener('mousedown', onMouseDown);
+  addEventListener('mouseup', onMouseUp);
+  
+  // Pointer lock o'zgarishi — pauza
+  document.addEventListener('pointerlockchange', () => {
+    if (gameActive && !document.pointerLockElement) {
+      paused = true;
+      document.getElementById('pauseMsg').style.display = 'block';
+    } else {
+      paused = false;
+      document.getElementById('pauseMsg').style.display = 'none';
+    }
+  });
+
+  animate();
+}
+
+// ===== SICHQONCHA HARAKATI =====
+function onMouseMove(e) {
+  if (!document.pointerLockElement || !gameActive || paused) return;
+  yaw -= e.movementX * MOUSE_SENSITIVITY;
+  pitch -= e.movementY * MOUSE_SENSITIVITY;
+  pitch = Math.max(-Math.PI/2 + 0.05, Math.min(Math.PI/2 - 0.05, pitch));
+}
+
+function onMouseDown(e) {
+  if (e.button === 0) {
+    mouseDown = true;
+    if (gameActive && !document.pointerLockElement) {
+      renderer.domElement.requestPointerLock();
+      return;
+    }
+    if (gameActive && !paused) shoot();
+  }
+}
+
+function onMouseUp(e) {
+  if (e.button === 0) mouseDown = false;
+}
+
+// ===== TOSH YARATISH =====
+function createRock() {
+  const group = new THREE.Group();
+  
+  // Asosiy tosh — deformatsiya qilingan sfera
+  const size = 1.0 + Math.random() * 1.5;
+  const geo = new THREE.DodecahedronGeometry(size, 1);
+  
+  // Vertexlarni tasodifiy siljitish (tabiiy ko'rinish)
+  const posAttr = geo.attributes.position;
+  for (let i = 0; i < posAttr.count; i++) {
+    const vx = posAttr.getX(i);
+    const vy = posAttr.getY(i);
+    const vz = posAttr.getZ(i);
+    const noise = 0.7 + Math.random() * 0.6;
+    posAttr.setXYZ(i, vx * noise, vy * noise * 0.7, vz * noise);
+  }
+  geo.computeVertexNormals();
+  
+  const grayShade = 0.35 + Math.random() * 0.25;
+  const rockColor = new THREE.Color(grayShade, grayShade * 0.95, grayShade * 0.9);
+  const mat = new THREE.MeshStandardMaterial({ 
+    color: rockColor, 
+    roughness: 0.9,
+    flatShading: true
+  });
+  
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.position.y = size * 0.35;
+  mesh.castShadow = true;
+  mesh.receiveShadow = true;
+  group.add(mesh);
+  
+  // Ba'zan kichik toshlar atrofida
+  const extraCount = Math.floor(Math.random() * 3);
+  for (let i = 0; i < extraCount; i++) {
+    const eSize = size * (0.2 + Math.random() * 0.3);
+    const eGeo = new THREE.DodecahedronGeometry(eSize, 0);
+    const eMesh = new THREE.Mesh(eGeo, mat);
+    eMesh.position.set(
+      (Math.random()-0.5) * size * 2,
+      eSize * 0.3,
+      (Math.random()-0.5) * size * 2
+    );
+    eMesh.rotation.set(Math.random()*Math.PI, Math.random()*Math.PI, Math.random()*Math.PI);
+    eMesh.castShadow = true;
+    group.add(eMesh);
+  }
+  
+  group.scale.setScalar(1);
+  return group;
+}
+
+function createTree() {
+  const tree = new THREE.Group();
+  const trunkGeo = new THREE.CylinderGeometry(0.45, 0.65, 4.5, 8);
+  const trunkMat = new THREE.MeshStandardMaterial({ color: 0x5a3a1a });
+  const trunk = new THREE.Mesh(trunkGeo, trunkMat);
+  trunk.position.y = 2.25;
+  trunk.castShadow = true;
+  tree.add(trunk);
+
+  const leavesColor = Math.random() > 0.5 ? 0x2d5a2d : 0x3a6a3a;
+  for (let i = 0; i < 3; i++) {
+    const leavesGeo = new THREE.ConeGeometry(2.6 - i*0.4, 3, 8);
+    const leavesMat = new THREE.MeshStandardMaterial({ color: leavesColor });
+    const leaves = new THREE.Mesh(leavesGeo, leavesMat);
+    leaves.position.y = 4.2 + i*1.5;
+    leaves.castShadow = true;
+    tree.add(leaves);
+  }
+  return tree;
+}
+
+function createSoldier(bodyColor, pantsColor) {
+  const soldier = new THREE.Group();
+  soldier.userData.isEnemy = true;
+  
+  const bodyGeo = new THREE.BoxGeometry(0.9, 1.3, 0.55);
+  const bodyMat = new THREE.MeshStandardMaterial({ color: bodyColor });
+  const body = new THREE.Mesh(bodyGeo, bodyMat);
+  body.position.y = 1.45;
+  body.castShadow = true;
+  soldier.add(body);
+  soldier.userData.bodyMesh = body;
+  soldier.userData.originalBodyColor = bodyColor;
+
+  const legGeo = new THREE.BoxGeometry(0.32, 0.95, 0.32);
+  const legMat = new THREE.MeshStandardMaterial({ color: pantsColor });
+  const legL = new THREE.Mesh(legGeo, legMat);
+  legL.position.set(-0.22, 0.475, 0);
+  legL.castShadow = true;
+  soldier.add(legL);
+  const legR = new THREE.Mesh(legGeo, legMat);
+  legR.position.set(0.22, 0.475, 0);
+  legR.castShadow = true;
+  soldier.add(legR);
+  soldier.userData.legL = legL;
+  soldier.userData.legR = legR;
+
+  const headGeo = new THREE.SphereGeometry(0.3, 14, 14);
+  const headMat = new THREE.MeshStandardMaterial({ color: 0xf4c896 });
+  const head = new THREE.Mesh(headGeo, headMat);
+  head.position.y = 2.35;
+  head.castShadow = true;
+  soldier.add(head);
+  soldier.userData.headMesh = head;
+
+  const helmetGeo = new THREE.SphereGeometry(0.34, 14, 10, 0, Math.PI*2, 0, Math.PI/2);
+  const helmetMat = new THREE.MeshStandardMaterial({ color: 0x3a4a2a });
+  const helmet = new THREE.Mesh(helmetGeo, helmetMat);
+  helmet.position.y = 2.4;
+  helmet.castShadow = true;
+  soldier.add(helmet);
+
+  const weaponGeo = new THREE.BoxGeometry(0.11, 0.11, 0.85);
+  const weaponMat = new THREE.MeshStandardMaterial({ color: 0x222222 });
+  const weapon = new THREE.Mesh(weaponGeo, weaponMat);
+  weapon.position.set(0.32, 1.35, 0.4);
+  soldier.add(weapon);
+  soldier.userData.weaponMesh = weapon;
+
+  const armGeo = new THREE.BoxGeometry(0.22, 0.95, 0.22);
+  const armMat = new THREE.MeshStandardMaterial({ color: bodyColor });
+  const armL = new THREE.Mesh(armGeo, armMat);
+  armL.position.set(-0.55, 1.45, 0);
+  soldier.add(armL);
+  const armR = new THREE.Mesh(armGeo, armMat);
+  armR.position.set(0.55, 1.45, 0.2);
+  armR.rotation.x = -0.6;
+  soldier.add(armR);
+  soldier.userData.armL = armL;
+  soldier.userData.armR = armR;
+
+  return soldier;
+}
+
+function spawnEnemy() {
+  if (enemies.length >= ENEMY_COUNT_MAX) return;
+  const angle = Math.random()*Math.PI*2;
+  const distance = 45 + Math.random()*35;
+  const enemy = createSoldier(0x6b4a2a, 0x4a3a1a);
+  enemy.position.set(
+    playerPos.x + Math.cos(angle)*distance, 0,
+    playerPos.z + Math.sin(angle)*distance
+  );
+  enemy.userData.hp = ENEMY_HP;
+  enemy.userData.isHit = false;
+  enemy.userData.hitTime = 0;
+  enemy.userData.deathTime = 0;
+  enemy.userData.isDying = false;
+  enemy.userData.speed = 2.5 + Math.random()*1.5;
+  enemy.userData.shootTimer = 0.5 + Math.random()*1.5;
+  enemy.userData.walkPhase = Math.random()*Math.PI*2;
+  enemies.push(enemy);
+  scene.add(enemy);
+}
+
+function shoot() {
+  if (reloading || !gameActive || paused || shootCooldown > 0) {
+    if (ammo <= 0 && !reloading && shootCooldown <= 0) {
+      playEmptyClick();
+      shootCooldown = 0.2;
+    }
+    return;
+  }
+  if (ammo <= 0) { playEmptyClick(); return; }
+  
+  ammo--;
+  shootCooldown = 0.12;
+  updateHUD();
+  playShootSound();
+
+  const flash = document.getElementById('muzzleFlash');
+  flash.style.opacity = '1';
+  setTimeout(()=>flash.style.opacity='0', 70);
+
+  recoilKick = 0.25;
+  recoilTilt = -0.35;
+  pitchRecoil = 0.04;
+
+  raycaster.setFromCamera(screenCenter, camera);
+  
+  const enemyGroups = enemies.filter(e => !e.userData.isDying);
+  const allMeshes = [];
+  enemyGroups.forEach(eg => {
+    eg.traverse(child => {
+      if (child.isMesh) {
+        child.userData._parentEnemy = eg;
+        allMeshes.push(child);
+      }
+    });
+  });
+
+  const hits = raycaster.intersectObjects(allMeshes, false);
+  
+  if (hits.length > 0) {
+    const hit = hits[0];
+    const enemy = hit.object.userData._parentEnemy;
+    
+    if (enemy && enemy.userData && enemy.userData.hp !== undefined && !enemy.userData.isDying) {
+      const isHeadshot = (hit.object === enemy.userData.headMesh);
+      const damage = isHeadshot ? 100 : 60;
+      
+      enemy.userData.hp -= damage;
+      enemy.userData.isHit = true;
+      enemy.userData.hitTime = clock.getElapsedTime();
+      
+      playHitSound();
+      
+      if (enemy.userData.bodyMesh) {
+        enemy.userData.bodyMesh.material = enemy.userData.bodyMesh.material.clone();
+        enemy.userData.bodyMesh.material.color.setHex(0xff1111);
+        enemy.userData.bodyMesh.material.emissive = new THREE.Color(0xcc0000);
+        enemy.userData.bodyMesh.material.emissiveIntensity = 0.7;
+      }
+      if (enemy.userData.headMesh) {
+        enemy.userData.headMesh.material = enemy.userData.headMesh.material.clone();
+        enemy.userData.headMesh.material.color.setHex(0xff2222);
+        enemy.userData.headMesh.material.emissive = new THREE.Color(0xaa0000);
+      }
+
+      const hm = document.getElementById('hitMarker');
+      hm.style.opacity = '1';
+      setTimeout(()=>hm.style.opacity='0', 180);
+
+      spawnBlood(hit.point, isHeadshot ? 15 : 8);
+
+      if (enemy.userData.hp <= 0) {
+        enemy.userData.isDying = true;
+        enemy.userData.deathTime = clock.getElapsedTime();
+        killCount++;
+        updateHUD();
+        playDeathSound();
+      }
+    }
+  }
+
+  createBulletTracer();
+}
+
+function spawnBlood(position, count) {
+  for (let i = 0; i < count; i++) {
+    const geo = new THREE.SphereGeometry(0.1, 6, 6);
+    const mat = new THREE.MeshBasicMaterial({ color: 0xcc0000 });
+    const particle = new THREE.Mesh(geo, mat);
+    particle.position.copy(position);
+    particle.userData.vel = new THREE.Vector3(
+      (Math.random()-0.5)*5, Math.random()*4 + 1, (Math.random()-0.5)*5
+    );
+    particle.userData.life = 0;
+    particle.userData.isBlood = true;
+    scene.add(particle);
+    particles.push(particle);
+  }
+}
+
+function createBulletTracer() {
+  const dir = new THREE.Vector3();
+  camera.getWorldDirection(dir);
+  const start = camera.position.clone().add(dir.clone().multiplyScalar(1.2));
+  const end = camera.position.clone().add(dir.clone().multiplyScalar(150));
+  const geo = new THREE.BufferGeometry().setFromPoints([start, end]);
+  const mat = new THREE.LineBasicMaterial({ color: 0xffee55, transparent:true, opacity:0.9 });
+  const line = new THREE.Line(geo, mat);
+  line.userData.life = 0;
+  line.userData.isTracer = true;
+  scene.add(line);
+  particles.push(line);
+}
+
+function enemyShoot(enemy, distance) {
+  const weaponWorldPos = new THREE.Vector3();
+  if (enemy.userData.weaponMesh) {
+    enemy.userData.weaponMesh.getWorldPosition(weaponWorldPos);
+    const fwd = new THREE.Vector3(0, 0, 0.5).applyQuaternion(enemy.quaternion);
+    weaponWorldPos.add(fwd);
+  } else {
+    weaponWorldPos.copy(enemy.position).add(new THREE.Vector3(0, 1.4, 0));
+  }
+  
+  const targetPos = playerPos.clone();
+  targetPos.x += (Math.random()-0.5)*1.2;
+  targetPos.y += (Math.random()-0.5)*0.8;
+  targetPos.z += (Math.random()-0.5)*1.2;
+  
+  const muzzleLight = new THREE.PointLight(0xffaa33, 3, 8);
+  muzzleLight.position.copy(weaponWorldPos);
+  scene.add(muzzleLight);
+  const muzzleSprite = new THREE.Mesh(
+    new THREE.SphereGeometry(0.25, 8, 8),
+    new THREE.MeshBasicMaterial({ color: 0xffcc33, transparent:true, opacity:1 })
+  );
+  muzzleSprite.position.copy(weaponWorldPos);
+  scene.add(muzzleSprite);
+  setTimeout(() => { scene.remove(muzzleLight); scene.remove(muzzleSprite); }, 80);
+  
+  createEnemyTracer(weaponWorldPos, targetPos);
+  playEnemyShootSound(distance);
+  
+  // Raycast tekshirish — tosh/daraxt orqasida berkinganmi?
+  const shootDir = new THREE.Vector3().subVectors(targetPos, weaponWorldPos).normalize();
+  const enemyRay = new THREE.Raycaster(weaponWorldPos, shootDir, 0, distance);
+  
+  // To'siqlarni tekshirish (toshlar va daraxtlar)
+  const obstacleMeshes = [];
+  rocks.forEach(r => r.traverse(c => { if(c.isMesh) obstacleMeshes.push(c); }));
+  trees.forEach(t => t.traverse(c => { if(c.isMesh) obstacleMeshes.push(c); }));
+  
+  const obstacleHits = enemyRay.intersectObjects(obstacleMeshes, false);
+  
+  // Agar to'siq bo'lmasa yoki to'siq o'yinchidan uzoqroqda bo'lsa → zarar
+  let blocked = false;
+  if (obstacleHits.length > 0) {
+    const hitDist = obstacleHits[0].distance;
+    if (hitDist < distance - 1.5) blocked = true;
+  }
+  
+  if (!blocked && Math.random() < 0.5) {
+    const dmg = 6 + Math.random()*8;
+    hp -= dmg;
+    updateHUD();
+    playDamageSound();
+    const overlay = document.getElementById('damageOverlay');
+    overlay.style.boxShadow = 'inset 0 0 120px rgba(255,0,0,0.6)';
+    setTimeout(()=>overlay.style.boxShadow = 'inset 0 0 0px rgba(255,0,0,0)', 300);
+    if (hp <= 0) endGame();
+  }
+}
+
+function createEnemyTracer(startPos, endPos) {
+  const bulletGeo = new THREE.SphereGeometry(0.12, 6, 6);
+  const bulletMat = new THREE.MeshBasicMaterial({ color: 0xffcc33 });
+  const bullet = new THREE.Mesh(bulletGeo, bulletMat);
+  bullet.position.copy(startPos);
+  const glow = new THREE.PointLight(0xffaa33, 1.5, 4);
+  bullet.add(glow);
+  const dir = new THREE.Vector3().subVectors(endPos, startPos);
+  const dist = dir.length();
+  const speed = 120;
+  const flightTime = dist / speed;
+  bullet.userData.isEnemyBullet = true;
+  bullet.userData.startPos = startPos.clone();
+  bullet.userData.endPos = endPos.clone();
+  bullet.userData.flightTime = flightTime;
+  bullet.userData.life = 0;
+  bullet.userData.lastTrailPos = startPos.clone();
+  bullet.userData.trailTimer = 0;
+  scene.add(bullet);
+  particles.push(bullet);
+}
+
+function reload() {
+  if (reloading || ammo === maxAmmo) return;
+  reloading = true;
+  playReloadSound();
+  document.getElementById('ammoVal').textContent = "🔄 QAYTA O'QLANMOQDA...";
+  setTimeout(() => {
+    ammo = maxAmmo;
+    reloading = false;
+    updateHUD();
+  }, 1500);
+}
+
+function updateHUD() {
+  document.getElementById('hpVal').textContent = Math.max(0, Math.round(hp));
+  document.getElementById('killVal').textContent = killCount;
+  if (!reloading) document.getElementById('ammoVal').textContent = `${ammo} / ${maxAmmo}`;
+}
+
+function onResize() {
+  camera.aspect = innerWidth/innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
+}
+
+function animate() {
+  requestAnimationFrame(animate);
+  const dt = Math.min(clock.getDelta(), 0.05);
+  const elapsed = clock.getElapsedTime();
+
+  if (shootCooldown > 0) shootCooldown -= dt;
+
+  // Avtomatik o'q otish
+  if (mouseDown && gameActive && !paused && shootCooldown <= 0 && !reloading && ammo > 0) {
+    shoot();
+  }
+
+  if (gameActive && !paused) {
+    // Harakat — WASD
+    const runKey = keys['ShiftLeft'] || keys['ShiftRight'];
+    const speed = runKey ? 13 : 6;
+    const forward = new THREE.Vector3(-Math.sin(yaw), 0, -Math.cos(yaw));
+    const right = new THREE.Vector3(Math.cos(yaw), 0, -Math.sin(yaw));
+    const moveDir = new THREE.Vector3();
+    let isMoving = false;
+    
+    if (keys['KeyW']) { moveDir.add(forward); isMoving = true; }
+    if (keys['KeyS']) { moveDir.sub(forward); isMoving = true; }
+    if (keys['KeyD']) { moveDir.add(right); isMoving = true; }
+    if (keys['KeyA']) { moveDir.sub(right); isMoving = true; }
+    
+    if (isMoving) {
+      moveDir.normalize().multiplyScalar(speed*dt);
+      playerPos.add(moveDir);
+      playerPos.x = Math.max(-FIELD_SIZE+2, Math.min(FIELD_SIZE-2, playerPos.x));
+      playerPos.z = Math.max(-FIELD_SIZE+2, Math.min(FIELD_SIZE-2, playerPos.z));
+    }
+
+    // To'siqlar bilan koliziya (daraxtlar + toshlar)
+    obstacles.forEach(ob => {
+      const dx = playerPos.x - ob.x;
+      const dz = playerPos.z - ob.z;
+      const dist = Math.hypot(dx, dz);
+      if (dist < ob.radius && dist > 0) {
+        const push = (ob.radius - dist);
+        playerPos.x += (dx/dist) * push;
+        playerPos.z += (dz/dist) * push;
+      }
+    });
+
+    camera.position.copy(playerPos);
+    camera.rotation.order = 'YXZ';
+    camera.rotation.y = yaw;
+    camera.rotation.x = pitch + pitchRecoil;
+    camera.updateMatrixWorld(true);
+
+    pitchRecoil *= Math.pow(0.0001, dt);
+    if (Math.abs(pitchRecoil) < 0.0001) pitchRecoil = 0;
+
+    const gunGroup = playerGroup.userData.gunGroup;
+    const restPos = playerGroup.userData.restPos;
+    const kickOffsetZ = recoilKick;
+    const kickOffsetY = recoilKick * 0.3;
+    const bobSpeed = runKey ? 12 : 8;
+    const bobY = Math.sin(elapsed*bobSpeed) * (isMoving ? 0.025 : 0.003);
+    const bobX = Math.sin(elapsed*bobSpeed*0.5) * (isMoving ? 0.015 : 0);
+
+    gunGroup.position.x = restPos.x + bobX;
+    gunGroup.position.y = restPos.y + bobY + kickOffsetY;
+    gunGroup.position.z = restPos.z + kickOffsetZ;
+    gunGroup.rotation.x = recoilTilt;
+    gunGroup.rotation.y = 0;
+    gunGroup.rotation.z = 0;
+
+    const recovery = 1 - Math.pow(0.0005, dt);
+    recoilKick *= (1 - recovery);
+    recoilTilt *= (1 - recovery);
+    if (Math.abs(recoilKick) < 0.001) recoilKick = 0;
+    if (Math.abs(recoilTilt) < 0.001) recoilTilt = 0;
+
+    // Dushmanlar
+    for (let i = enemies.length - 1; i >= 0; i--) {
+      const enemy = enemies[i];
+      
+      if (enemy.userData.isDying) {
+        const t = elapsed - enemy.userData.deathTime;
+        enemy.rotation.z = Math.min(t*3, Math.PI/2);
+        enemy.position.y = Math.max(-0.5, -t*1.5);
+        if (t > 3) { scene.remove(enemy); enemies.splice(i, 1); }
+        continue;
+      }
+
+      const toPlayer = new THREE.Vector3().subVectors(playerPos, enemy.position);
+      toPlayer.y = 0;
+      const dist = toPlayer.length();
+      const toPlayerNorm = toPlayer.clone().normalize();
+
+      if (dist > 8) {
+        enemy.position.add(toPlayerNorm.clone().multiplyScalar(enemy.userData.speed*dt));
+        enemy.userData.walkPhase += dt*9;
+        enemy.userData.legL.rotation.x = Math.sin(enemy.userData.walkPhase)*0.7;
+        enemy.userData.legR.rotation.x = -Math.sin(enemy.userData.walkPhase)*0.7;
+        enemy.userData.armL.rotation.x = -Math.sin(enemy.userData.walkPhase)*0.5;
+      }
+
+      enemy.rotation.y = Math.atan2(toPlayerNorm.x, toPlayerNorm.z);
+
+      if (enemy.userData.isHit) {
+        if (elapsed - enemy.userData.hitTime > 0.4) {
+          if (enemy.userData.bodyMesh) {
+            enemy.userData.bodyMesh.material.color.setHex(enemy.userData.originalBodyColor);
+            enemy.userData.bodyMesh.material.emissive = new THREE.Color(0x000000);
+            enemy.userData.bodyMesh.material.emissiveIntensity = 0;
+          }
+          if (enemy.userData.headMesh) {
+            enemy.userData.headMesh.material.color.setHex(0xf4c896);
+            enemy.userData.headMesh.material.emissive = new THREE.Color(0x000000);
+          }
+          enemy.userData.isHit = false;
+        }
+      }
+
+      enemy.userData.shootTimer -= dt;
+      if (enemy.userData.shootTimer <= 0 && dist < ENEMY_SHOOT_RANGE && dist > 3) {
+        enemy.userData.shootTimer = 1.2 + Math.random()*1.5;
+        enemyShoot(enemy, dist);
+      }
+    }
+
+    // Zarrachalar
+    for (let i = particles.length - 1; i >= 0; i--) {
+      const p = particles[i];
+      p.userData.life += dt;
+      
+      if (p.userData.isEnemyBullet) {
+        const t = Math.min(p.userData.life / p.userData.flightTime, 1);
+        p.position.lerpVectors(p.userData.startPos, p.userData.endPos, t);
+        p.userData.trailTimer -= dt;
+        if (p.userData.trailTimer <= 0) {
+          p.userData.trailTimer = 0.02;
+          const segGeo = new THREE.BufferGeometry().setFromPoints([
+            p.userData.lastTrailPos.clone(), p.position.clone()
+          ]);
+          const segMat = new THREE.LineBasicMaterial({ color: 0xff6622, transparent:true, opacity: 0.85 });
+          const seg = new THREE.Line(segGeo, segMat);
+          seg.userData.life = 0;
+          seg.userData.isEnemyTrail = true;
+          scene.add(seg);
+          particles.push(seg);
+          p.userData.lastTrailPos = p.position.clone();
+        }
+        if (t >= 1) { scene.remove(p); particles.splice(i, 1); }
+      } else if (p.userData.isEnemyTrail) {
+        if (p.material) p.material.opacity = Math.max(0, 1 - p.userData.life * 4);
+        if (p.userData.life > 0.25) { scene.remove(p); particles.splice(i, 1); }
+      } else if (p.userData.isTracer) {
+        if (p.material) p.material.opacity = Math.max(0, 1 - p.userData.life*12);
+        if (p.userData.life > 0.1) { scene.remove(p); particles.splice(i, 1); }
+      } else if (p.userData.isBlood) {
+        p.position.add(p.userData.vel.clone().multiplyScalar(dt));
+        p.userData.vel.y -= 18*dt;
+        if (p.position.y < 0) {
+          p.position.y = 0;
+          p.userData.vel.multiplyScalar(0.3);
+          p.userData.vel.y = Math.abs(p.userData.vel.y) * 0.3;
+        }
+        if (p.userData.life > 1.5) { scene.remove(p); particles.splice(i, 1); }
+      }
+    }
+
+    if (Math.random() < 0.025) spawnEnemy();
+    document.getElementById('timeVal').textContent = Math.floor(elapsed - startTime);
+  }
+
+  renderer.render(scene, camera);
+}
+
+function startGame() {
+  initAudio();
+  if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
+  document.getElementById('startScreen').style.display = 'none';
+  document.getElementById('hud').style.display = 'block';
+  document.getElementById('volumeControl').style.display = 'flex';
+  renderer.domElement.requestPointerLock();
+  gameActive = true;
+  startTime = clock.getElapsedTime();
+  for (let i = 0; i < 5; i++) spawnEnemy();
+  updateHUD();
+}
+
+function endGame() {
+  gameActive = false;
+  if (document.pointerLockElement) document.exitPointerLock();
+  playGameOverSound();
+  document.getElementById('gameOver').style.display = 'flex';
+  const timePlayed = Math.floor(clock.getElapsedTime() - startTime);
+  document.getElementById('finalStats').innerHTML = 
+    `🎯 O'ldirilgan: <b style="color:#ffd24a">${killCount}</b><br>⏱️ Vaqt: <b style="color:#ffd24a">${timePlayed}</b> soniya`;
+}
+
+document.getElementById('startBtn').addEventListener('click', startGame);
+
+// Pauzadan chiqish — ekran bosilsa
+document.getElementById('pauseMsg').addEventListener('click', () => {
+  if (gameActive) renderer.domElement.requestPointerLock();
+});
+
+init();
+</script>
+</body>
+</html>
+
+
