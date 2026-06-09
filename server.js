@@ -2,11 +2,33 @@ const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
 const path = require('path');
+const fs = require('fs');
 
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server, {
   cors: { origin: '*' }
+});
+
+// Oddiy JSON bazasi reytinglar uchun
+const DB_FILE = path.join(__dirname, 'db.json');
+let ratingsDB = {};
+
+function loadDB() {
+  if (fs.existsSync(DB_FILE)) {
+    try {
+      ratingsDB = JSON.parse(fs.readFileSync(DB_FILE, 'utf8'));
+    } catch(e) { ratingsDB = {}; }
+  }
+}
+function saveDB() {
+  fs.writeFileSync(DB_FILE, JSON.stringify(ratingsDB, null, 2));
+}
+loadDB();
+
+// Reytinglarni olish API
+app.get('/api/ratings', (req, res) => {
+  res.json(ratingsDB);
 });
 
 // Statik fayllarni uzatish
@@ -102,9 +124,21 @@ io.on('connection', (socket) => {
         target.hp = 0;
         target.isDead = true;
         target.deaths++;
+        
+        // Qurbonning umumiy reytingini yangilash
+        if (!ratingsDB[target.name]) ratingsDB[target.name] = { kills: 0, deaths: 0 };
+        ratingsDB[target.name].deaths++;
+        
         if (players[socket.id]) {
           players[socket.id].kills++;
+          const killerName = players[socket.id].name;
+          // Qotilning reytingini yangilash
+          if (!ratingsDB[killerName]) ratingsDB[killerName] = { kills: 0, deaths: 0 };
+          ratingsDB[killerName].kills++;
         }
+        
+        saveDB(); // Bazaga saqlash
+
         io.emit('playerDied', { victimId: data.targetId, killerId: socket.id });
         
         // Birozdan keyin qayta tiriltirish (Respawn)
