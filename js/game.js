@@ -151,8 +151,8 @@ function init() {
     if (e.code === 'Digit2') switchWeapon(1);
     if (e.code === 'Digit3') switchWeapon(2);
     if (e.code === 'Digit4') switchWeapon(3);
-    if (e.code === 'KeyG') throwGrenadeLocal('explosive');
-    if (e.code === 'KeyF') throwGrenadeLocal('smoke');
+    if (e.code === 'KeyG' && !isSpectating) throwGrenadeLocal('explosive');
+    if (e.code === 'KeyF' && !isSpectating) throwGrenadeLocal('smoke');
   });
   addEventListener('keyup', e => { keys[e.code] = false; });
   
@@ -166,7 +166,7 @@ function init() {
   document.addEventListener('pointerlockchange', () => {
     if (gameActive && !document.pointerLockElement) {
       paused = true;
-      document.getElementById('pauseMsg').style.display = 'block';
+      if (!isDead) document.getElementById('pauseMsg').style.display = 'block';
     } else {
       paused = false;
       document.getElementById('pauseMsg').style.display = 'none';
@@ -234,15 +234,9 @@ function switchWeapon(index) {
 }
 
 function shoot() {
+  if (!gameActive || paused || reloading || isDead || isSpectating) return;
   const weapon = weapons[currentWeaponIndex];
-  if (reloading || !gameActive || paused || shootCooldown > 0) {
-    if (ammo <= 0 && !reloading && shootCooldown <= 0) {
-      playEmptyClick();
-      shootCooldown = 0.2;
-    }
-    return;
-  }
-  if (ammo <= 0) { playEmptyClick(); return; }
+  if (shootCooldown > 0) return;
   
   ammo--;
   shootCooldown = weapon.cooldown;
@@ -257,7 +251,7 @@ function shoot() {
   recoilTilt = -weapon.recoil * 1.5;
   pitchRecoil = weapon.recoil * 0.15;
 
-  const enemyGroups = Object.values(networkPlayers).filter(p => !p.userData.isDying); // Barchani (hatto o'z jamoadoshini) urish mumkin, lekin server jamoani tekshirishi mumkin. Yoq o'z jamoadoshlarini chiqaramiz:
+  const enemyGroups = Object.values(networkPlayers).filter(p => !p.userData.isDying);
   const validTargets = Object.values(networkPlayers).filter(p => !p.userData.isDying && p.userData.team !== myTeam);
   
   const allMeshes = [];
@@ -329,11 +323,18 @@ function updateHUD() {
   
   if(document.getElementById('grenadeVal')) document.getElementById('grenadeVal').textContent = grenadeCount;
   if(document.getElementById('smokeVal')) document.getElementById('smokeVal').textContent = smokeCount;
+
+  // Raund vaqti
+  if (document.getElementById('roundTimer')) {
+    let m = Math.floor(roundTime / 60);
+    let s = roundTime % 60;
+    document.getElementById('roundTimer').textContent = (m < 10 ? '0'+m : m) + ':' + (s < 10 ? '0'+s : s);
+  }
 }
 
 // ===== GRANATA OTISH =====
 function throwGrenadeLocal(type) {
-  if (!gameActive || paused || isDead) return;
+  if (!gameActive || paused || isDead || isSpectating) return;
   if (type === 'explosive' && grenadeCount <= 0) return;
   if (type === 'smoke' && smokeCount <= 0) return;
 
@@ -384,6 +385,8 @@ function onResize() {
   renderer.setSize(innerWidth, innerHeight);
 }
 
+let plantProgress = 0;
+
 function animate() {
   requestAnimationFrame(animate);
   const dt = Math.min(clock.getDelta(), 0.05);
@@ -392,82 +395,143 @@ function animate() {
   if (shootCooldown > 0) shootCooldown -= dt;
 
   // Avtomatik o'q otish
-  if (mouseDown && gameActive && !paused && shootCooldown <= 0 && !reloading && ammo > 0) {
+  if (mouseDown && gameActive && !paused && shootCooldown <= 0 && !reloading && ammo > 0 && !isSpectating && !isDead) {
     shoot();
   }
 
   if (gameActive && !paused) {
-    // Harakat — WASD
-    const runKey = keys['ShiftLeft'] || keys['ShiftRight'];
-    const speed = runKey ? 13 : 6;
-    const forward = new THREE.Vector3(-Math.sin(yaw), 0, -Math.cos(yaw));
-    const right = new THREE.Vector3(Math.cos(yaw), 0, -Math.sin(yaw));
-    const moveDir = new THREE.Vector3();
-    let isMoving = false;
-    
-    if (keys['KeyW']) { moveDir.add(forward); isMoving = true; }
-    if (keys['KeyS']) { moveDir.sub(forward); isMoving = true; }
-    if (keys['KeyD']) { moveDir.add(right); isMoving = true; }
-    if (keys['KeyA']) { moveDir.sub(right); isMoving = true; }
-    
-    const nextPos = playerPos.clone();
-    if (isMoving) {
-      moveDir.normalize().multiplyScalar(speed*dt);
-      nextPos.add(moveDir);
-      nextPos.x = Math.max(-FIELD_SIZE+2, Math.min(FIELD_SIZE-2, nextPos.x));
-      nextPos.z = Math.max(-FIELD_SIZE+2, Math.min(FIELD_SIZE-2, nextPos.z));
-    }
-
-    // AABB Koliziya (Binolar bilan gorizontal)
-    const pRadius = 0.6;
-    let hitX = false;
-    let hitZ = false;
-
-    for (const mesh of walkableObjects) {
-      const box = new THREE.Box3().setFromObject(mesh);
-      // X o'qi bo'yicha to'qnashuv
-      if (nextPos.x + pRadius > box.min.x && nextPos.x - pRadius < box.max.x &&
-          playerPos.z + pRadius > box.min.z && playerPos.z - pRadius < box.max.z &&
-          playerPos.y > box.min.y && playerPos.y - 1.8 < box.max.y) {
-          hitX = true;
+    if (!isDead && !isSpectating) {
+      // Harakat — WASD
+      const runKey = keys['ShiftLeft'] || keys['ShiftRight'];
+      const speed = runKey ? 13 : 6;
+      const forward = new THREE.Vector3(-Math.sin(yaw), 0, -Math.cos(yaw));
+      const right = new THREE.Vector3(Math.cos(yaw), 0, -Math.sin(yaw));
+      const moveDir = new THREE.Vector3();
+      let isMoving = false;
+      
+      if (keys['KeyW']) { moveDir.add(forward); isMoving = true; }
+      if (keys['KeyS']) { moveDir.sub(forward); isMoving = true; }
+      if (keys['KeyD']) { moveDir.add(right); isMoving = true; }
+      if (keys['KeyA']) { moveDir.sub(right); isMoving = true; }
+      
+      const nextPos = playerPos.clone();
+      if (isMoving) {
+        moveDir.normalize().multiplyScalar(speed*dt);
+        nextPos.add(moveDir);
+        nextPos.x = Math.max(-FIELD_SIZE+2, Math.min(FIELD_SIZE-2, nextPos.x));
+        nextPos.z = Math.max(-FIELD_SIZE+2, Math.min(FIELD_SIZE-2, nextPos.z));
       }
-      // Z o'qi bo'yicha to'qnashuv
-      if (playerPos.x + pRadius > box.min.x && playerPos.x - pRadius < box.max.x &&
-          nextPos.z + pRadius > box.min.z && nextPos.z - pRadius < box.max.z &&
-          playerPos.y > box.min.y && playerPos.y - 1.8 < box.max.y) {
-          hitZ = true;
+
+      // AABB Koliziya (Binolar bilan gorizontal)
+      const pRadius = 0.6;
+      let hitX = false;
+      let hitZ = false;
+
+      for (const mesh of walkableObjects) {
+        const box = new THREE.Box3().setFromObject(mesh);
+        // X o'qi bo'yicha to'qnashuv
+        if (nextPos.x + pRadius > box.min.x && nextPos.x - pRadius < box.max.x &&
+            playerPos.z + pRadius > box.min.z && playerPos.z - pRadius < box.max.z &&
+            playerPos.y > box.min.y && playerPos.y - 1.8 < box.max.y) {
+            hitX = true;
+        }
+        // Z o'qi bo'yicha to'qnashuv
+        if (playerPos.x + pRadius > box.min.x && playerPos.x - pRadius < box.max.x &&
+            nextPos.z + pRadius > box.min.z && nextPos.z - pRadius < box.max.z &&
+            playerPos.y > box.min.y && playerPos.y - 1.8 < box.max.y) {
+            hitZ = true;
+        }
       }
+
+      if (!hitX) playerPos.x = nextPos.x;
+      if (!hitZ) playerPos.z = nextPos.z;
+
+      // Sakrash va tortishish (Jump and Gravity)
+      velocityY -= GRAVITY * dt;
+      playerPos.y += velocityY * dt;
+
+      // Pastga raycast (yer yoki bino ustida ekanligini bilish)
+      const rayDown = new THREE.Raycaster(new THREE.Vector3(playerPos.x, playerPos.y + 1, playerPos.z), new THREE.Vector3(0, -1, 0));
+      const intersects = rayDown.intersectObjects(walkableObjects, false);
+      
+      let groundY = 0; // Oddiy yer
+      if (intersects.length > 0) {
+        groundY = intersects[0].point.y;
+      }
+
+      if (playerPos.y - 2.0 <= groundY && velocityY <= 0) {
+         playerPos.y = groundY + 2.0;
+         velocityY = 0;
+         isGrounded = true;
+      } else {
+         isGrounded = false;
+      }
+
+      camera.position.copy(playerPos);
+      camera.rotation.order = 'YXZ';
+      camera.rotation.y = yaw;
+      camera.rotation.x = pitch + pitchRecoil;
+      camera.updateMatrixWorld(true);
+
+      // Bomba qo'yish
+      if (keys['KeyE'] && roundState === 'PLAYING') {
+        const distToBlue = Math.hypot(playerPos.x - BLUE_BASE_POS.x, playerPos.z - BLUE_BASE_POS.z);
+        if (myTeam === 'red' && bombState === 'INACTIVE' && distToBlue <= BASE_RADIUS) {
+          plantProgress += dt;
+          document.getElementById('bombUI').style.display = 'block';
+          document.getElementById('bombActionText').textContent = "BOMBA O'RNATILMOQDA...";
+          document.getElementById('bombProgressBar').style.width = (plantProgress / 3.0 * 100) + '%';
+          if (plantProgress >= 3.0) {
+            socket.emit('plantBomb');
+            plantProgress = 0;
+            keys['KeyE'] = false;
+            document.getElementById('bombUI').style.display = 'none';
+          }
+        } else if (myTeam === 'blue' && bombState === 'PLANTED' && window.bombPos) {
+          const distToBomb = Math.hypot(playerPos.x - window.bombPos.x, playerPos.z - window.bombPos.z);
+          if (distToBomb <= 4.0) {
+            plantProgress += dt;
+            document.getElementById('bombUI').style.display = 'block';
+            document.getElementById('bombActionText').textContent = "BOMBA ZARARSIZLANTIRILMOQDA...";
+            document.getElementById('bombProgressBar').style.width = (plantProgress / 3.0 * 100) + '%';
+            if (plantProgress >= 3.0) {
+              socket.emit('defuseBomb');
+              plantProgress = 0;
+              keys['KeyE'] = false;
+              document.getElementById('bombUI').style.display = 'none';
+            }
+          } else {
+            plantProgress = 0;
+            document.getElementById('bombUI').style.display = 'none';
+          }
+        } else {
+          plantProgress = 0;
+          document.getElementById('bombUI').style.display = 'none';
+        }
+      } else {
+        plantProgress = 0;
+        document.getElementById('bombUI').style.display = 'none';
+      }
+    } else if (isSpectating) {
+      // Spectator kamera harakati
+      const speed = 25;
+      const forward = new THREE.Vector3(0, 0, -1).applyAxisAngle(new THREE.Vector3(0,1,0), yaw).applyAxisAngle(new THREE.Vector3(1,0,0), pitch);
+      const right = new THREE.Vector3(1, 0, 0).applyAxisAngle(new THREE.Vector3(0,1,0), yaw);
+      let moveDir = new THREE.Vector3();
+      if (keys['KeyW']) moveDir.add(forward);
+      if (keys['KeyS']) moveDir.sub(forward);
+      if (keys['KeyD']) moveDir.add(right);
+      if (keys['KeyA']) moveDir.sub(right);
+      if (moveDir.lengthSq() > 0) moveDir.normalize();
+      playerPos.add(moveDir.multiplyScalar(speed * dt));
+      if (playerPos.y < 2) playerPos.y = 2;
+
+      camera.position.copy(playerPos);
+      camera.rotation.order = 'YXZ';
+      camera.rotation.y = yaw;
+      camera.rotation.x = pitch;
+      camera.updateMatrixWorld(true);
     }
-
-    if (!hitX) playerPos.x = nextPos.x;
-    if (!hitZ) playerPos.z = nextPos.z;
-
-    // Sakrash va tortishish (Jump and Gravity)
-    velocityY -= GRAVITY * dt;
-    playerPos.y += velocityY * dt;
-
-    // Pastga raycast (yer yoki bino ustida ekanligini bilish)
-    const rayDown = new THREE.Raycaster(new THREE.Vector3(playerPos.x, playerPos.y + 1, playerPos.z), new THREE.Vector3(0, -1, 0));
-    const intersects = rayDown.intersectObjects(walkableObjects, false);
-    
-    let groundY = 0; // Oddiy yer
-    if (intersects.length > 0) {
-      groundY = intersects[0].point.y;
-    }
-
-    if (playerPos.y - 2.0 <= groundY && velocityY <= 0) {
-       playerPos.y = groundY + 2.0;
-       velocityY = 0;
-       isGrounded = true;
-    } else {
-       isGrounded = false;
-    }
-
-    camera.position.copy(playerPos);
-    camera.rotation.order = 'YXZ';
-    camera.rotation.y = yaw;
-    camera.rotation.x = pitch + pitchRecoil;
-    camera.updateMatrixWorld(true);
 
     pitchRecoil *= Math.pow(0.0001, dt);
     if (Math.abs(pitchRecoil) < 0.0001) pitchRecoil = 0;
@@ -659,7 +723,10 @@ function animate() {
     }
 
     if (Math.random() < 0.025) spawnEnemy();
-    document.getElementById('timeVal').textContent = Math.floor(elapsed - startTime);
+  } // <-- End if (gameActive && !paused && !isDead)
+
+  if (gameActive && isDead && isSpectating) {
+    // Spectator uchun UI update kerakmas, faqat kamera update qilinadi va u animate ni boshida bajarilgan
   }
 
   // Camera FOV lerp
@@ -702,13 +769,114 @@ function initMultiplayer() {
     // O'zimizning boshlang'ich nuqtamizni serverdan qabul qilish
     if (data.state && data.state[myId]) {
         playerPos.set(data.state[myId].x, 2, data.state[myId].z);
+        isSpectating = data.state[myId].isSpectator;
+        if (isSpectating) {
+          document.getElementById('spectatorUI').style.display = 'block';
+        }
     }
+
+    roundState = data.gameState || 'WAITING';
+    roundTime = data.roundTime || 0;
+    bombState = data.bombState || 'INACTIVE';
 
     for (const key in data.state) {
       if (key !== myId && !data.state[key].isDead) {
         addNetworkPlayer(data.state[key]);
       }
     }
+  });
+
+  socket.on('timeUpdate', (data) => {
+    roundState = data.gameState;
+    roundTime = data.roundTime;
+    bombState = data.bombState;
+    if (bombState === 'PLANTED') {
+      document.getElementById('bombTimerDisplay').style.display = 'block';
+      document.getElementById('bombTimerDisplay').textContent = `💣 BOMBA: ${data.bombTime}s`;
+    } else {
+      document.getElementById('bombTimerDisplay').style.display = 'none';
+    }
+    
+    if (roundState === 'WAITING') {
+      document.getElementById('roundMessageUI').style.display = 'block';
+      document.getElementById('roundMessageTitle').textContent = "KUTILMOQDA...";
+      document.getElementById('roundMessageTitle').style.color = "white";
+      document.getElementById('roundMessageSubtitle').textContent = "Boshqa o'yinchilar qo'shilishi kutilmoqda";
+    } else if (roundState === 'PLAYING') {
+      document.getElementById('roundMessageUI').style.display = 'none';
+    }
+  });
+
+  socket.on('roundStart', (data) => {
+    if (data.score) {
+      document.getElementById('redScore').textContent = data.score.red;
+      document.getElementById('blueScore').textContent = data.score.blue;
+    }
+    roundState = 'PLAYING';
+    roundTime = data.roundTime;
+    bombState = 'INACTIVE';
+    document.getElementById('bombTimerDisplay').style.display = 'none';
+    document.getElementById('roundMessageUI').style.display = 'none';
+    document.getElementById('spectatorUI').style.display = 'none';
+    document.getElementById('gameOver').style.display = 'none';
+    document.getElementById('pauseMsg').style.display = 'none';
+
+    // Barcha network mesh larni tozalash va yangilash
+    for (let id in networkPlayers) {
+      scene.remove(networkPlayers[id]);
+      delete networkPlayers[id];
+    }
+
+    const state = data.state;
+    if (state[myId]) {
+      isDead = false;
+      isSpectating = false;
+      gameActive = true;
+      hp = 100;
+      grenadeCount = 3;
+      smokeCount = 3;
+      playerPos.set(state[myId].x, 2, state[myId].z);
+      yaw = 0; pitch = 0;
+      updateHUD();
+      if (!paused) renderer.domElement.requestPointerLock();
+    }
+
+    for (const key in state) {
+      if (key !== myId && !state[key].isDead) {
+        addNetworkPlayer(state[key]);
+      }
+    }
+  });
+
+  socket.on('roundEnd', (data) => {
+    roundState = 'ROUND_END';
+    if (data.score) {
+      document.getElementById('redScore').textContent = data.score.red;
+      document.getElementById('blueScore').textContent = data.score.blue;
+    }
+    const winnerName = data.winner === 'red' ? 'QIZILLAR YUTDI!' : "KO'KLAR YUTDI!";
+    const color = data.winner === 'red' ? '#ff4444' : '#4444ff';
+    document.getElementById('roundMessageUI').style.display = 'block';
+    document.getElementById('roundMessageTitle').textContent = winnerName;
+    document.getElementById('roundMessageTitle').style.color = color;
+    document.getElementById('roundMessageSubtitle').textContent = data.reason;
+  });
+
+  socket.on('bombPlanted', (data) => {
+    bombState = 'PLANTED';
+    window.bombPos = data.pos;
+    // Ovoz chalish va xabar
+    playShootSound(); // bomba ovozi yo'q, shunga shuni chalamiz
+    document.getElementById('roundMessageUI').style.display = 'block';
+    document.getElementById('roundMessageTitle').textContent = "BOMBA O'RNATILDI!";
+    document.getElementById('roundMessageTitle').style.color = "#ffd700";
+    document.getElementById('roundMessageSubtitle').textContent = data.planterName + " bombani joylashtirdi. 40 soniya!";
+    setTimeout(() => { document.getElementById('roundMessageUI').style.display = 'none'; }, 3000);
+  });
+
+  socket.on('bombDefused', (data) => {
+    bombState = 'DEFUSED';
+    document.getElementById('bombTimerDisplay').style.display = 'none';
   });
 
   socket.on('playerJoined', (player) => {
@@ -769,10 +937,11 @@ function initMultiplayer() {
   socket.on('playerDied', (data) => {
     if (data.victimId === myId) {
       isDead = true;
-      gameActive = false;
+      isSpectating = true;
+      gameActive = true; // Spectator kamera ishlashi uchun true
       document.exitPointerLock();
-      document.getElementById('pauseMsg').innerHTML = "💀 O'LDIRILDINGIZ!<br>Qayta tirilishni kuting...";
-      document.getElementById('pauseMsg').style.display = 'block';
+      document.getElementById('gameOver').style.display = 'block';
+      document.getElementById('spectatorUI').style.display = 'block';
     } else if (networkPlayers[data.victimId]) {
       const pMesh = networkPlayers[data.victimId];
       pMesh.userData.isDying = true;
@@ -784,54 +953,7 @@ function initMultiplayer() {
     }
   });
 
-  socket.on('playerRespawned', (player) => {
-    if (player.id === myId) {
-      isDead = false;
-      gameActive = true;
-      hp = 100;
-      grenadeCount = 3; // Har safar tug'ilganda qayta beriladi
-      smokeCount = 3;
-      playerPos.set(player.x, 2, player.z);
-      updateHUD();
-      document.getElementById('pauseMsg').innerHTML = "⏸️ PAUZA<br><span style='font-size:16px;color:#ccc;'>Davom etish uchun ekranni bosing</span>";
-      document.getElementById('pauseMsg').style.display = 'none';
-      renderer.domElement.requestPointerLock();
-    } else {
-      if (!networkPlayers[player.id]) {
-        addNetworkPlayer(player);
-      } else {
-        const pMesh = networkPlayers[player.id];
-        pMesh.position.set(player.x, player.y - 2.0, player.z);
-        pMesh.userData.isDying = false;
-        pMesh.rotation.z = 0;
-      }
-    }
-  });
-
-  socket.on('captureUpdate', (progress) => {
-    document.getElementById('captureUI').style.display = 'block';
-    document.getElementById('redCaptureBar').style.width = (progress.red / 15 * 100) + '%';
-    document.getElementById('blueCaptureBar').style.width = (progress.blue / 15 * 100) + '%';
-  });
-
-  socket.on('gameOver', (data) => {
-    gameActive = false;
-    document.exitPointerLock();
-    
-    if (data.score) {
-      document.getElementById('redScore').textContent = data.score.red;
-      document.getElementById('blueScore').textContent = data.score.blue;
-    }
-
-    const winnerName = data.winner === 'red' ? 'QIZILLAR' : "KO'KLAR";
-    const color = data.winner === 'red' ? '#ff4444' : '#4444ff';
-    document.getElementById('pauseMsg').innerHTML = `🎉 <span style="color:${color}">${winnerName} G'ALABA QOZONDI!</span><br><br>Yangi o'yin 5 soniyadan keyin boshlanadi...`;
-    document.getElementById('pauseMsg').style.display = 'block';
-    setTimeout(() => {
-        // Resetting local UI handled by playerRespawned naturally
-        document.getElementById('captureUI').style.display = 'none';
-    }, 5000);
-  });
+  // playerRespawned, captureUpdate va gameOver olib tashlandi. Hammasi roundStart va roundEnd da qilinadi.
 }
 
 function addNetworkPlayer(playerData) {

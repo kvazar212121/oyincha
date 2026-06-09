@@ -72,6 +72,10 @@ let networkPlayers = {}; // Serverdan keladigan boshqa o'yinchilar
 let isDead = false;
 let deaths = 0;
 
-// Baza egallash progressi (UI uchun)
-let captureProgress = { red: 0, blue: 0 };
+// Raund o'zgaruvchilari
+let roundState = 'WAITING';
+let roundTime = 0;
+let bombState = 'INACTIVE';
+let bombTime = 0;
+let isSpectating = false;
 let walkableObjects = [];

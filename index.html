@@ -18,29 +18,31 @@
   <div class="row"><span class="label">⏱️ Vaqt: </span><span class="val" id="timeVal">0</span></div>
 </div>
 
-<div id="scoreUI" style="display:none; position:absolute; top:20px; left:50%; transform:translateX(-50%); text-align:center; background:rgba(0,0,0,0.75); padding:10px 25px; border-radius:12px; border:2px solid #555; z-index:100; font-family:sans-serif; color:white;">
-  <div style="font-size:22px; font-weight:bold;">
-    <span style="color:#ff4444;" id="redScore">0</span> - <span style="color:#4444ff;" id="blueScore">0</span>
+<div id="scoreUI" style="display:none; position:absolute; top:20px; left:50%; transform:translateX(-50%); text-align:center; background:rgba(0,0,0,0.75); padding:10px 25px; border-radius:12px; border:2px solid #555; z-index:100; font-family:sans-serif; color:white; width: 300px;">
+  <div style="font-size:24px; font-weight:bold; margin-bottom: 5px;" id="roundTimer">02:00</div>
+  <div style="font-size:20px; font-weight:bold; display: flex; justify-content: center; align-items: center; gap: 15px;">
+    <span style="color:#ff4444;" id="redScore">0</span>
+    <span style="font-size: 14px; color: #ccc;">RAUNDLAR</span>
+    <span style="color:#4444ff;" id="blueScore">0</span>
   </div>
-  <div style="font-size:12px; color:#aaa; margin-top:4px;">Jamoa Ochkosi</div>
+  <div style="font-size:12px; margin-top: 5px; color: yellow; display: none;" id="bombTimerDisplay">💣 BOMBA: 40s</div>
 </div>
 
-<div id="captureUI" style="display:none; position:absolute; top:90px; left:50%; transform:translateX(-50%); text-align:center; background:rgba(0,0,0,0.7); padding:10px 20px; border-radius:8px; border:2px solid #444; z-index:100; font-family:sans-serif;">
-  <div style="color:white; margin-bottom:5px; font-weight:bold; font-size:18px;">BAZA EGALLASH</div>
-  <div style="display:flex; gap:20px;">
-    <div>
-      <div style="color:#ff4444; font-weight:bold; margin-bottom:4px;">QIZILLAR</div>
-      <div style="width:150px; height:15px; background:#222; border:1px solid #555;">
-        <div id="redCaptureBar" style="width:0%; height:100%; background:#ff4444; transition:width 0.2s;"></div>
-      </div>
-    </div>
-    <div>
-      <div style="color:#4444ff; font-weight:bold; margin-bottom:4px;">KO'KLAR</div>
-      <div style="width:150px; height:15px; background:#222; border:1px solid #555;">
-        <div id="blueCaptureBar" style="width:0%; height:100%; background:#4444ff; transition:width 0.2s;"></div>
-      </div>
-    </div>
+<div id="bombUI" style="display:none; position:absolute; top:120px; left:50%; transform:translateX(-50%); text-align:center; background:rgba(0,0,0,0.7); padding:10px 20px; border-radius:8px; border:2px solid #444; z-index:100; font-family:sans-serif; width: 200px;">
+  <div id="bombActionText" style="color:white; margin-bottom:5px; font-weight:bold; font-size:16px;">BOMBA O'RNATILMOQDA...</div>
+  <div style="width:100%; height:15px; background:#222; border:1px solid #555;">
+    <div id="bombProgressBar" style="width:0%; height:100%; background:#ffd700; transition:width 0.1s;"></div>
   </div>
+</div>
+
+<div id="spectatorUI" style="display:none; position:absolute; bottom:50px; left:50%; transform:translateX(-50%); text-align:center; background:rgba(0,0,0,0.8); padding:15px 30px; border-radius:8px; border:2px solid red; z-index:100; font-family:sans-serif; color:white;">
+  <h2>👁️ SIZ KUZATUVCHISIZ</h2>
+  <p>Keyingi raund boshlanishini kuting...</p>
+</div>
+
+<div id="roundMessageUI" style="display:none; position:absolute; top:30%; left:50%; transform:translate(-50%, -50%); text-align:center; background:rgba(0,0,0,0.8); padding:30px 50px; border-radius:12px; border:3px solid white; z-index:200; font-family:sans-serif; color:white;">
+  <h1 id="roundMessageTitle" style="margin: 0; font-size: 40px; text-transform: uppercase;">QIZILLAR YUTDI!</h1>
+  <p id="roundMessageSubtitle" style="font-size: 20px; color: #ccc; margin-top: 10px;">Barcha dushmanlar yo'q qilindi</p>
 </div>
 
 <div id="volumeControl">
@@ -83,7 +85,7 @@
   <div class="keys">
     <p style="margin-bottom:12px;"><span class="key">W</span><span class="key">A</span><span class="key">S</span><span class="key">D</span> — Harakatlanish &nbsp; <span class="key">SPACE</span> — Sakrash</p>
     <p style="margin-bottom:12px;"><span class="key">1</span><span class="key">2</span><span class="key">3</span><span class="key">4</span> — Qurolni almashtirish</p>
-    <p style="margin-bottom:12px;"><span class="key">G</span> — Granata &nbsp; <span class="key">F</span> — Tutatqi</p>
+    <p style="margin-bottom:12px;"><span class="key">G</span> — Granata &nbsp; <span class="key">F</span> — Tutatqi &nbsp; <span class="key">E</span> — Bomba qo'yish/Zararsizlantirish</p>
     <p style="margin-bottom:12px;">🖱️ <b>Sichqoncha</b> — Nishonga olish</p>
     <p style="margin-bottom:12px;"><span class="key">Chap tugma</span> — O'q otish &nbsp; <span class="key">O'ng tugma</span> — Yaqinlashtirish (Sniper)</p>
     <p><span class="key">R</span> — Qayta o'qlash &nbsp; <span class="key">SHIFT</span> — Yugurish</p>
@@ -91,10 +93,10 @@
   <button id="startBtn">JANGGA KIRISH</button>
 </div>
 
-<div id="gameOver">
+<div id="gameOver" style="display:none;">
   <h2>SIZ HALOK BO'LDINGIZ</h2>
   <p id="finalStats" style="font-size:22px; margin:20px;"></p>
-  <button onclick="location.reload()" style="padding:14px 40px; font-size:20px; background:#ff6b35; color:#fff; border:none; border-radius:8px; cursor:pointer; font-weight:bold;">QAYTA BOSHLASH</button>
+  <p style="font-size:16px; color:#aaa;">Iltimos, navbatdagi raundni kuting...</p>
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/three@0.150.1/build/three.min.js"></script>

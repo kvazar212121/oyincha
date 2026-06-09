@@ -6,19 +6,13 @@ const fs = require('fs');
 
 const app = express();
 const server = http.createServer(app);
-const io = new Server(server, {
-  cors: { origin: '*' }
-});
+const io = new Server(server, { cors: { origin: '*' } });
 
-// Oddiy JSON bazasi reytinglar uchun
 const DB_FILE = path.join(__dirname, 'db.json');
 let ratingsDB = {};
-
 function loadDB() {
   if (fs.existsSync(DB_FILE)) {
-    try {
-      ratingsDB = JSON.parse(fs.readFileSync(DB_FILE, 'utf8'));
-    } catch(e) { ratingsDB = {}; }
+    try { ratingsDB = JSON.parse(fs.readFileSync(DB_FILE, 'utf8')); } catch(e) { ratingsDB = {}; }
   }
 }
 function saveDB() {
@@ -26,77 +20,119 @@ function saveDB() {
 }
 loadDB();
 
-// Reytinglarni olish API
-app.get('/api/ratings', (req, res) => {
-  res.json(ratingsDB);
-});
-
-// Statik fayllarni uzatish
+app.get('/api/ratings', (req, res) => { res.json(ratingsDB); });
 app.use(express.static(__dirname));
 
 let players = {};
 let redCount = 0;
 let blueCount = 0;
 
-// Base Capture Variables
 const BASE_RADIUS = 8;
 const RED_BASE_POS = { x: 0, z: 65 };
 const BLUE_BASE_POS = { x: 0, z: -65 };
-let captureProgress = { red: 0, blue: 0 };
+
 let teamScore = { red: 0, blue: 0 };
-const CAPTURE_TIME = 15; // 15 sekund
+
+// Raund holati
+let gameState = 'WAITING'; // WAITING, PLAYING, ROUND_END
+let roundTime = 0; 
+let bombState = 'INACTIVE'; // INACTIVE, PLANTED, DEFUSED, EXPLODED
+let bombTime = 0;
+let bombPos = null;
+
+const ROUND_DURATION = 120; // 2 daqiqa
+const BOMB_TIMER = 40; // bomba 40 soniyada portlaydi
+
+function checkWinCondition() {
+  if (gameState !== 'PLAYING') return;
+
+  let aliveRed = 0;
+  let aliveBlue = 0;
+  for (let id in players) {
+    if (!players[id].isDead && !players[id].isSpectator) {
+      if (players[id].team === 'red') aliveRed++;
+      if (players[id].team === 'blue') aliveBlue++;
+    }
+  }
+
+  if (aliveRed === 0 && bombState !== 'PLANTED') {
+    endRound('blue', 'Barcha Terroristlar yo\'q qilindi');
+    return;
+  }
+  if (aliveBlue === 0 && bombState !== 'PLANTED') {
+    endRound('red', 'Barcha Maxsus Kuchlar yo\'q qilindi');
+    return;
+  }
+  if (aliveBlue === 0 && bombState === 'PLANTED') {
+    endRound('red', 'Maxsus Kuchlar yo\'q qilindi (Bomba o\'rnatilgan)');
+    return;
+  }
+}
+
+function endRound(winnerTeam, reason) {
+  gameState = 'ROUND_END';
+  roundTime = 8; // Keyingi raundgacha 8 soniya
+  if (winnerTeam === 'red') teamScore.red++;
+  if (winnerTeam === 'blue') teamScore.blue++;
+  
+  io.emit('roundEnd', { winner: winnerTeam, reason: reason, score: teamScore });
+}
+
+function startRound() {
+  gameState = 'PLAYING';
+  roundTime = ROUND_DURATION;
+  bombState = 'INACTIVE';
+  bombTime = 0;
+  bombPos = null;
+
+  for (let id in players) {
+    const p = players[id];
+    p.isDead = false;
+    p.isSpectator = false;
+    p.hp = 100;
+    p.z = p.team === 'red' ? RED_BASE_POS.z + (Math.random()-0.5)*15 : BLUE_BASE_POS.z + (Math.random()-0.5)*15;
+    p.x = (Math.random() - 0.5) * 30;
+  }
+  io.emit('roundStart', { state: players, roundTime: roundTime, score: teamScore });
+}
 
 io.on('connection', (socket) => {
-  console.log('Yangi o\'yinchi ulandi:', socket.id);
+  console.log('Yangi o\'yinchi:', socket.id);
 
   const queryName = socket.handshake.query.name || 'Askar';
   const queryTeam = socket.handshake.query.team || 'auto';
 
-  // Jamoaga bo'lish (maksimal 5v5 deb hisoblasak)
   let assignedTeam = 'red';
-  if (queryTeam === 'red') {
-    assignedTeam = 'red';
-    redCount++;
-  } else if (queryTeam === 'blue') {
-    assignedTeam = 'blue';
-    blueCount++;
-  } else {
-    // Auto assignment
-    if (blueCount < redCount) {
-      assignedTeam = 'blue';
-      blueCount++;
-    } else {
-      redCount++;
-    }
+  if (queryTeam === 'red') { assignedTeam = 'red'; redCount++; } 
+  else if (queryTeam === 'blue') { assignedTeam = 'blue'; blueCount++; } 
+  else {
+    if (blueCount < redCount) { assignedTeam = 'blue'; blueCount++; } 
+    else { assignedTeam = 'red'; redCount++; }
   }
 
-  // Spawn point
   const spawnZ = assignedTeam === 'red' ? RED_BASE_POS.z + (Math.random()-0.5)*15 : BLUE_BASE_POS.z + (Math.random()-0.5)*15;
   const spawnX = (Math.random() - 0.5) * 30;
 
-  // O'yinchining boshlang'ich holati
+  let isSpec = (gameState === 'PLAYING'); // O'yin ketayotganda kirsa, kuzatuvchi bo'ladi
+
   players[socket.id] = {
     id: socket.id,
-    name: queryName.substring(0, 15), // Maks 15 harf
-    x: spawnX,
-    y: 2,
-    z: spawnZ,
-    yaw: 0,
-    pitch: 0,
-    hp: 100,
+    name: queryName.substring(0, 15),
+    x: spawnX, y: 2, z: spawnZ,
+    yaw: 0, pitch: 0,
+    hp: isSpec ? 0 : 100,
     team: assignedTeam,
-    isDead: false,
-    kills: 0,
-    deaths: 0
+    isDead: isSpec,
+    isSpectator: isSpec,
+    kills: 0, deaths: 0
   };
 
-  // Yangi o'yinchiga o'z IDsi va jamoasi haqida xabar berish
-  socket.emit('init', { id: socket.id, team: assignedTeam, state: players, score: teamScore });
-
-  // Qolganlarga yangi o'yinchi haqida xabar berish
+  socket.emit('init', { 
+    id: socket.id, team: assignedTeam, state: players, score: teamScore,
+    gameState: gameState, roundTime: roundTime, bombState: bombState 
+  });
   socket.broadcast.emit('playerJoined', players[socket.id]);
 
-  // Harakat ma'lumotlarini qabul qilish
   socket.on('updateState', (state) => {
     if (players[socket.id] && !players[socket.id].isDead) {
       players[socket.id].x = state.x;
@@ -107,140 +143,127 @@ io.on('connection', (socket) => {
     }
   });
 
-  // O'q otish haqida ma'lumot qabul qilish (vizual effektlar uchun)
   socket.on('shoot', (data) => {
-    // data: { start: {x,y,z}, dir: {x,y,z} }
+    if(!players[socket.id] || players[socket.id].isDead) return;
     socket.broadcast.emit('playerShot', { id: socket.id, ...data });
   });
 
-  // Zarba (Hit) ma'lumotini qabul qilish
+  socket.on('throwGrenade', (data) => {
+    if(!players[socket.id] || players[socket.id].isDead) return;
+    socket.broadcast.emit('playerThrewGrenade', {
+      playerId: socket.id, grenadeId: data.id, type: data.type,
+      start: data.start, velocity: data.velocity
+    });
+  });
+
   socket.on('hit', (data) => {
-    // data: { targetId: '...', damage: 60, isHeadshot: false }
+    if(gameState !== 'PLAYING') return;
     const target = players[data.targetId];
     if (target && !target.isDead) {
       target.hp -= data.damage;
-      
       if (target.hp <= 0) {
         target.hp = 0;
         target.isDead = true;
+        target.isSpectator = true;
         target.deaths++;
         
-        // Qurbonning umumiy reytingini yangilash
         if (!ratingsDB[target.name]) ratingsDB[target.name] = { kills: 0, deaths: 0 };
         ratingsDB[target.name].deaths++;
         
         if (players[socket.id]) {
           players[socket.id].kills++;
           const killerName = players[socket.id].name;
-          // Qotilning reytingini yangilash
           if (!ratingsDB[killerName]) ratingsDB[killerName] = { kills: 0, deaths: 0 };
           ratingsDB[killerName].kills++;
         }
-        
-        saveDB(); // Bazaga saqlash
+        saveDB();
 
         io.emit('playerDied', { victimId: data.targetId, killerId: socket.id });
-        
-        // Birozdan keyin qayta tiriltirish (Respawn)
-        setTimeout(() => {
-          if (players[data.targetId]) {
-            players[data.targetId].hp = 100;
-            players[data.targetId].isDead = false;
-            const sZ = players[data.targetId].team === 'red' ? RED_BASE_POS.z + (Math.random()-0.5)*15 : BLUE_BASE_POS.z + (Math.random()-0.5)*15;
-            players[data.targetId].x = (Math.random() - 0.5) * 30;
-            players[data.targetId].z = sZ;
-            io.emit('playerRespawned', players[data.targetId]);
-          }
-        }, 3000);
+        checkWinCondition();
       }
-      
       io.emit('playerHit', { id: data.targetId, hp: target.hp, isHeadshot: data.isHeadshot });
     }
   });
 
-  // Granata uloqtirilganda
-  socket.on('throwGrenade', (data) => {
-    // data: { id: grenadeId, type: 'explosive' | 'smoke', start: {x,y,z}, velocity: {x,y,z} }
-    socket.broadcast.emit('playerThrewGrenade', {
-      playerId: socket.id,
-      grenadeId: data.id,
-      type: data.type,
-      start: data.start,
-      velocity: data.velocity
-    });
+  socket.on('plantBomb', () => {
+    if (gameState === 'PLAYING' && players[socket.id].team === 'red' && bombState === 'INACTIVE' && !players[socket.id].isDead) {
+      const dist = Math.hypot(players[socket.id].x - BLUE_BASE_POS.x, players[socket.id].z - BLUE_BASE_POS.z);
+      if (dist <= BASE_RADIUS) {
+        bombState = 'PLANTED';
+        bombTime = BOMB_TIMER;
+        bombPos = { x: players[socket.id].x, y: 0.2, z: players[socket.id].z };
+        io.emit('bombPlanted', { pos: bombPos, time: bombTime, planterName: players[socket.id].name });
+      }
+    }
   });
 
-  // Ulanish uzilganda
+  socket.on('defuseBomb', () => {
+    if (gameState === 'PLAYING' && players[socket.id].team === 'blue' && bombState === 'PLANTED' && !players[socket.id].isDead) {
+      if (bombPos) {
+        const dist = Math.hypot(players[socket.id].x - bombPos.x, players[socket.id].z - bombPos.z);
+        if (dist <= 4.0) { 
+          bombState = 'DEFUSED';
+          io.emit('bombDefused', { defuserName: players[socket.id].name });
+          endRound('blue', 'Bomba zararsizlantirildi!');
+        }
+      }
+    }
+  });
+
   socket.on('disconnect', () => {
-    console.log('O\'yinchi chiqib ketdi:', socket.id);
     if (players[socket.id]) {
       if (players[socket.id].team === 'red') redCount--;
       else blueCount--;
       delete players[socket.id];
       io.emit('playerLeft', socket.id);
+      checkWinCondition();
     }
   });
 });
 
-// Har 50ms da (sekundiga 20 marta) barchaga yangilangan holatni yuboramiz
+// O'yin taymeri
+setInterval(() => {
+  if (gameState === 'WAITING') {
+    let aliveRed = 0, aliveBlue = 0;
+    for (let id in players) {
+      if (players[id].team === 'red') aliveRed++;
+      if (players[id].team === 'blue') aliveBlue++;
+    }
+    if (aliveRed >= 1 && aliveBlue >= 1) {
+      startRound();
+    }
+  } else if (gameState === 'PLAYING') {
+    if (bombState === 'PLANTED') {
+      bombTime--;
+      if (bombTime <= 0) {
+        bombState = 'EXPLODED';
+        endRound('red', 'Bomba portladi!');
+      }
+    } else {
+      roundTime--;
+      if (roundTime <= 0) {
+        endRound('blue', 'Vaqt tugadi! Baza himoya qilindi');
+      }
+    }
+  } else if (gameState === 'ROUND_END') {
+    roundTime--;
+    if (roundTime <= 0) {
+      let r=0, b=0;
+      for (let id in players) {
+        if (players[id].team === 'red') r++;
+        if (players[id].team === 'blue') b++;
+      }
+      if (r >= 1 && b >= 1) startRound();
+      else gameState = 'WAITING';
+    }
+  }
+  
+  io.emit('timeUpdate', { gameState, roundTime, bombState, bombTime });
+}, 1000);
+
 setInterval(() => {
   io.emit('stateUpdate', players);
 }, 50);
-
-// Har 1 soniyada Baza egallashni tekshirish
-setInterval(() => {
-  let redInBlueBase = false;
-  let blueInRedBase = false;
-
-  for (const id in players) {
-    const p = players[id];
-    if (p.isDead) continue;
-    
-    // Qizillar ko'k bazada
-    if (p.team === 'red') {
-      const dist = Math.hypot(p.x - BLUE_BASE_POS.x, p.z - BLUE_BASE_POS.z);
-      if (dist <= BASE_RADIUS) redInBlueBase = true;
-    }
-    // Ko'klar qizil bazada
-    if (p.team === 'blue') {
-      const dist = Math.hypot(p.x - RED_BASE_POS.x, p.z - RED_BASE_POS.z);
-      if (dist <= BASE_RADIUS) blueInRedBase = true;
-    }
-  }
-
-  if (redInBlueBase) captureProgress.red++;
-  else if (captureProgress.red > 0) captureProgress.red--; // Sekin pasayishi mumkin yoki nolga tushishi mumkin, pasaytiramiz
-
-  if (blueInRedBase) captureProgress.blue++;
-  else if (captureProgress.blue > 0) captureProgress.blue--;
-
-  io.emit('captureUpdate', captureProgress);
-
-  if (captureProgress.red >= CAPTURE_TIME) {
-    teamScore.red++;
-    io.emit('gameOver', { winner: 'red', score: teamScore });
-    captureProgress = { red: 0, blue: 0 };
-    resetGame();
-  } else if (captureProgress.blue >= CAPTURE_TIME) {
-    teamScore.blue++;
-    io.emit('gameOver', { winner: 'blue', score: teamScore });
-    captureProgress = { red: 0, blue: 0 };
-    resetGame();
-  }
-}, 1000);
-
-function resetGame() {
-  for (const id in players) {
-    const p = players[id];
-    p.hp = 100;
-    p.isDead = false;
-    p.z = p.team === 'red' ? RED_BASE_POS.z + (Math.random()-0.5)*15 : BLUE_BASE_POS.z + (Math.random()-0.5)*15;
-    p.x = (Math.random() - 0.5) * 30;
-    p.kills = 0;
-    p.deaths = 0;
-    io.emit('playerRespawned', p);
-  }
-}
 
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
