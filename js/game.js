@@ -719,7 +719,7 @@ function initMultiplayer() {
     for (const key in state) {
       if (key !== myId && networkPlayers[key] && !state[key].isDead) {
         networkPlayers[key].userData.targetX = state[key].x;
-        networkPlayers[key].userData.targetY = state[key].y;
+        networkPlayers[key].userData.targetY = state[key].y - 2.0; // Koz hizosidan oyoq hizosiga o'tkazish
         networkPlayers[key].userData.targetZ = state[key].z;
         networkPlayers[key].userData.targetYaw = state[key].yaw;
         networkPlayers[key].userData.targetPitch = state[key].pitch;
@@ -801,7 +801,7 @@ function initMultiplayer() {
         addNetworkPlayer(player);
       } else {
         const pMesh = networkPlayers[player.id];
-        pMesh.position.set(player.x, player.y, player.z);
+        pMesh.position.set(player.x, player.y - 2.0, player.z);
         pMesh.userData.isDying = false;
         pMesh.rotation.z = 0;
       }
@@ -836,11 +836,11 @@ function initMultiplayer() {
 
 function addNetworkPlayer(playerData) {
   const mesh = createPlayerMesh(playerData.team, playerData.name);
-  mesh.position.set(playerData.x, playerData.y, playerData.z);
+  mesh.position.set(playerData.x, playerData.y - 2.0, playerData.z);
   mesh.userData.id = playerData.id;
   mesh.userData.team = playerData.team;
   mesh.userData.targetX = playerData.x;
-  mesh.userData.targetY = playerData.y;
+  mesh.userData.targetY = playerData.y - 2.0;
   mesh.userData.targetZ = playerData.z;
   mesh.userData.targetYaw = playerData.yaw;
   mesh.userData.targetPitch = playerData.pitch;
