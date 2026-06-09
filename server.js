@@ -158,6 +158,18 @@ io.on('connection', (socket) => {
     }
   });
 
+  // Granata uloqtirilganda
+  socket.on('throwGrenade', (data) => {
+    // data: { id: grenadeId, type: 'explosive' | 'smoke', start: {x,y,z}, velocity: {x,y,z} }
+    socket.broadcast.emit('playerThrewGrenade', {
+      playerId: socket.id,
+      grenadeId: data.id,
+      type: data.type,
+      start: data.start,
+      velocity: data.velocity
+    });
+  });
+
   // Ulanish uzilganda
   socket.on('disconnect', () => {
     console.log('O\'yinchi chiqib ketdi:', socket.id);

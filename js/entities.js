@@ -349,14 +349,71 @@ function createBaseZone(x, z, colorStr) {
 
 function createBuilding(x, y, z, width, height, depth, colorHex) {
   const geo = new THREE.BoxGeometry(width, height, depth);
-  const mat = new THREE.MeshStandardMaterial({ color: colorHex, roughness: 0.8 });
+  const bldgMat = new THREE.MeshStandardMaterial({ color: colorHex, roughness: 0.9 });
+  const bldg = new THREE.Mesh(geo, bldgMat);
+  bldg.position.set(x, y + height/2, z);
+  bldg.castShadow = true;
+  bldg.receiveShadow = true;
+  scene.add(bldg);
+  obstacles.push(bldg);
+  walkableObjects.push(bldg);
+  return bldg;
+}
+
+// ==================== GRANATA VA TUTATQI EFEKTLARI ====================
+function createGrenadeMesh(type) {
+  const geo = new THREE.SphereGeometry(0.15, 8, 8);
+  const color = type === 'explosive' ? 0x225522 : 0xaaaaaa;
+  const mat = new THREE.MeshStandardMaterial({ color: color, roughness: 0.6 });
   const mesh = new THREE.Mesh(geo, mat);
-  mesh.position.set(x, y + height / 2, z);
   mesh.castShadow = true;
-  mesh.receiveShadow = true;
-  scene.add(mesh);
-  
-  // game.js da to'qnashuvni tekshirish uchun o'lchamlarni saqlaymiz
-  walkableObjects.push(mesh);
   return mesh;
+}
+
+function spawnExplosion(pos) {
+  // Olov zarralari
+  for (let i = 0; i < 40; i++) {
+    const geo = new THREE.BoxGeometry(0.2, 0.2, 0.2);
+    const mat = new THREE.MeshBasicMaterial({ color: Math.random() > 0.5 ? 0xff4400 : 0xffaa00 });
+    const p = new THREE.Mesh(geo, mat);
+    p.position.copy(pos);
+    p.userData = {
+      isExplosion: true,
+      life: 0,
+      maxLife: 0.5 + Math.random() * 0.3,
+      vel: new THREE.Vector3(
+        (Math.random() - 0.5) * 15,
+        (Math.random() - 0.2) * 15,
+        (Math.random() - 0.5) * 15
+      )
+    };
+    scene.add(p);
+    particles.push(p);
+  }
+}
+
+function spawnSmokeCloud(pos) {
+  // Tutun zarralari
+  for (let i = 0; i < 20; i++) {
+    const geo = new THREE.SphereGeometry(1.5 + Math.random(), 7, 7);
+    const mat = new THREE.MeshBasicMaterial({ color: 0x888888, transparent: true, opacity: 0.8 });
+    const p = new THREE.Mesh(geo, mat);
+    
+    // Tutun markaz atrofida tarqaladi
+    p.position.set(
+      pos.x + (Math.random() - 0.5) * 4,
+      pos.y + Math.random() * 3,
+      pos.z + (Math.random() - 0.5) * 4
+    );
+    
+    p.userData = {
+      isSmokeCloud: true,
+      life: 0,
+      maxLife: 15.0, // 15 soniya yashaydi
+      scaleSpeed: 1 + Math.random(),
+      vel: new THREE.Vector3((Math.random() - 0.5)*0.5, Math.random()*0.2, (Math.random() - 0.5)*0.5)
+    };
+    scene.add(p);
+    particles.push(p);
+  }
 }

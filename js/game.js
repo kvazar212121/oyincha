@@ -151,6 +151,8 @@ function init() {
     if (e.code === 'Digit2') switchWeapon(1);
     if (e.code === 'Digit3') switchWeapon(2);
     if (e.code === 'Digit4') switchWeapon(3);
+    if (e.code === 'KeyG') throwGrenadeLocal('explosive');
+    if (e.code === 'KeyF') throwGrenadeLocal('smoke');
   });
   addEventListener('keyup', e => { keys[e.code] = false; });
   
@@ -324,6 +326,56 @@ function updateHUD() {
   document.getElementById('killVal').textContent = killCount;
   document.getElementById('weaponVal').textContent = weapon.name;
   if (!reloading) document.getElementById('ammoVal').textContent = `${ammo} / ${weapon.maxAmmo}`;
+  
+  if(document.getElementById('grenadeVal')) document.getElementById('grenadeVal').textContent = grenadeCount;
+  if(document.getElementById('smokeVal')) document.getElementById('smokeVal').textContent = smokeCount;
+}
+
+// ===== GRANATA OTISH =====
+function throwGrenadeLocal(type) {
+  if (!gameActive || paused || isDead) return;
+  if (type === 'explosive' && grenadeCount <= 0) return;
+  if (type === 'smoke' && smokeCount <= 0) return;
+
+  if (type === 'explosive') grenadeCount--;
+  else smokeCount--;
+  updateHUD();
+
+  // Yonalishni topish
+  const lookDir = new THREE.Vector3();
+  camera.getWorldDirection(lookDir);
+
+  const startPos = playerPos.clone().add(new THREE.Vector3(0, 1.5, 0)).add(lookDir.clone().multiplyScalar(1.0));
+  const velocity = lookDir.clone().multiplyScalar(18).add(new THREE.Vector3(0, 5, 0)); // Oldinga va yuqoriga
+
+  const grenadeId = myId + '_' + Date.now() + Math.floor(Math.random()*1000);
+  
+  socket.emit('throwGrenade', {
+    id: grenadeId,
+    type: type,
+    start: startPos,
+    velocity: velocity
+  });
+
+  createAndThrowGrenade(grenadeId, type, startPos, velocity, true);
+}
+
+function createAndThrowGrenade(id, type, startPos, vel, isMine) {
+  const mesh = createGrenadeMesh(type);
+  mesh.position.copy(startPos);
+  
+  mesh.userData = {
+    id: id,
+    type: type,
+    vel: vel,
+    life: 0,
+    maxLife: 2.5, // 2.5 soniyadan so'ng portlaydi
+    isMine: isMine,
+    bounces: 0
+  };
+  
+  scene.add(mesh);
+  activeGrenades.push(mesh);
 }
 
 function onResize() {
@@ -548,6 +600,61 @@ function animate() {
           p.userData.vel.y = Math.abs(p.userData.vel.y) * 0.3;
         }
         if (p.userData.life > 1.5) { scene.remove(p); particles.splice(i, 1); }
+      } else if (p.userData.isExplosion) {
+        p.position.add(p.userData.vel.clone().multiplyScalar(dt));
+        p.userData.vel.y -= 5*dt;
+        if(p.material) p.material.opacity = Math.max(0, 1 - (p.userData.life/p.userData.maxLife));
+        if(p.userData.life >= p.userData.maxLife) { scene.remove(p); particles.splice(i, 1); }
+      } else if (p.userData.isSmokeCloud) {
+        p.position.add(p.userData.vel.clone().multiplyScalar(dt));
+        p.scale.addScalar(p.userData.scaleSpeed * dt * 0.5);
+        if(p.material) p.material.opacity = Math.max(0, 0.8 * (1 - (p.userData.life/p.userData.maxLife)));
+        if(p.userData.life >= p.userData.maxLife) { scene.remove(p); particles.splice(i, 1); }
+      }
+    }
+
+    // Granatalar harakati
+    for (let i = activeGrenades.length - 1; i >= 0; i--) {
+      const g = activeGrenades[i];
+      g.userData.life += dt;
+      
+      // Harakat
+      g.position.add(g.userData.vel.clone().multiplyScalar(dt));
+      g.userData.vel.y -= GRAVITY * 0.8 * dt; // Biros sekinroq gravitatsiya
+
+      // Yer bilan to'qnashuv
+      if (g.position.y <= 0.15) {
+        g.position.y = 0.15;
+        g.userData.vel.y = Math.abs(g.userData.vel.y) * 0.4; // Sakrash
+        g.userData.vel.x *= 0.7; // Ishqalanish
+        g.userData.vel.z *= 0.7;
+        g.userData.bounces++;
+      }
+
+      if (g.userData.life >= g.userData.maxLife) {
+        // Portlash
+        if (g.userData.type === 'explosive') {
+          spawnExplosion(g.position);
+          playShootSound(); // hozircha portlash ovozi o'rniga o'q ovozi
+          
+          // Faqat granata egasi zararni hisoblaydi (serverga jo'natadi)
+          if (g.userData.isMine) {
+            const expRadius = 12;
+            const validTargets = Object.values(networkPlayers).filter(p => !p.userData.isDying && p.userData.team !== myTeam);
+            validTargets.forEach(enemy => {
+              const dist = g.position.distanceTo(enemy.position);
+              if (dist <= expRadius) {
+                const dmg = Math.max(10, 120 - (dist * 10)); // Yaxshi damage
+                socket.emit('hit', { targetId: enemy.userData.id, damage: dmg, isHeadshot: false });
+              }
+            });
+          }
+        } else if (g.userData.type === 'smoke') {
+          spawnSmokeCloud(g.position);
+        }
+        
+        scene.remove(g);
+        activeGrenades.splice(i, 1);
       }
     }
 
@@ -634,6 +741,12 @@ function initMultiplayer() {
     }
   });
 
+  socket.on('playerThrewGrenade', (data) => {
+    if (data.playerId !== myId) {
+      createAndThrowGrenade(data.grenadeId, data.type, data.start, data.velocity, false);
+    }
+  });
+
   socket.on('playerHit', (data) => {
     if (data.id === myId) {
       hp = data.hp;
@@ -676,6 +789,8 @@ function initMultiplayer() {
       isDead = false;
       gameActive = true;
       hp = 100;
+      grenadeCount = 3; // Har safar tug'ilganda qayta beriladi
+      smokeCount = 3;
       playerPos.set(player.x, 2, player.z);
       updateHUD();
       document.getElementById('pauseMsg').innerHTML = "⏸️ PAUZA<br><span style='font-size:16px;color:#ccc;'>Davom etish uchun ekranni bosing</span>";

@@ -7,6 +7,10 @@ let particles = [];
 let trees = [];
 let rocks = [];       
 let obstacles = [];   
+let activeGrenades = [];
+let activeSmokes = [];
+let grenadeCount = 3;
+let smokeCount = 3;
 let killCount = 0;
 let hp = 100;
 
